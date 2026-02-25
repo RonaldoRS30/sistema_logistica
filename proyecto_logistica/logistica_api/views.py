@@ -848,6 +848,7 @@ def logistica_umed_view(request):
     return Response(data)
 
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def logistica_areas_view(request):
@@ -875,7 +876,16 @@ def logistica_areas_view(request):
 
     return Response(data)
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def logistica_next_num_reg(request):
+    ultimo = LogisticaDashboard.objects.aggregate(maximo=Max('num_reg'))['maximo']
+    siguiente = (int(ultimo) if ultimo else 0) + 1
 
+    return Response({
+        'num_reg': siguiente,
+        'num_reg_formatted': str(siguiente).zfill(8),  # ej: "00000025"
+    })
 
 # Detalle de cotización por num_reg
 @api_view(['GET'])
@@ -2853,10 +2863,15 @@ def lista_areas(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def lista_clientes(request):
-    clientes = vc_tab_clientes.objects.filter(activo=True).order_by("nombre")
+    q = request.GET.get("q", "")
+    clientes = vc_tab_clientes.objects.filter(activo=True)
+    if q:
+        clientes = clientes.filter(
+            Q(nombre__icontains=q) | Q(ruc__icontains=q)
+        )
+    clientes = clientes.order_by("nombre")[:100]
     serializer = ClientesSerializer(clientes, many=True)
     return Response(serializer.data)
-
 # vc_tab_estado
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

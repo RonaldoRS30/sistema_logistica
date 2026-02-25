@@ -36,7 +36,7 @@ urlpatterns = [
     path('logistica/dashboard/productos/', views.logistica_productos_view, name="logistica_productos"),
     path('logistica/dashboard/umed/', views.logistica_umed_view, name="logistica_umed"),
     path('logistica/dashboard/areas/', views.logistica_areas_view, name="logistica_areas"),
-
+    path('logistica/dashboard/next-num-reg/',     views.logistica_next_num_reg, name='logistica-next-num-reg'),
     # BUSQUEDA
     path('clientes/<str:empresa>/encargados/', views.buscar_encargados_por_empresa, name='buscar_encargados_por_empresa'),
 

@@ -6,15 +6,15 @@ from django.conf import settings
 from django.conf.urls.static import static
 from logistica_api.views_frontend import FrontendAppView
 
+# proyecto_cotizaciones/urls.py
 urlpatterns = [
-    # API principal
-    path('api/', include('logistica_api.urls')),
-
-    # Django admin
     path('admin/', admin.site.urls),
 
-    # Catch-all para React SPA
-    re_path(r'^.*$', FrontendAppView.as_view(), name='frontend'),
+    # ✅ Primero las rutas de API
+    path('api/', include('logistica_api.urls')),
+
+    # ✅ El catch-all del frontend SIEMPRE al final
+    re_path(r'^.*', FrontendAppView.as_view()),
 ]
 
 if settings.DEBUG:
