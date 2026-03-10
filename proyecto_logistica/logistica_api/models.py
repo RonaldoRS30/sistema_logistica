@@ -489,6 +489,116 @@ class AlmTabUmed(models.Model):
 
 
 
+# models.py
+
+# models.py
+
+class VcMovOrdenSoli(models.Model):
+    num_reg = models.CharField(max_length=70, blank=True, null=True)
+    reg     = models.AutoField(primary_key=True) #clave para CONSULTAR A LA OTRA TABLA 
+    nig     = models.CharField(max_length=1, blank=True, null=True)
+    cog     = models.CharField(max_length=10, blank=True, null=True)
+    num     = models.IntegerField(blank=True, null=True)
+    fec     = models.DateField(blank=True, null=True)
+    hor     = models.CharField(max_length=10, blank=True, null=True)
+    are     = models.CharField(max_length=1, blank=True, null=True)
+    cod     = models.CharField(max_length=70, blank=True, null=True)
+    sol     = models.CharField(max_length=60, blank=True, null=True)
+    soc     = models.CharField(max_length=30, blank=True, null=True)
+    des     = models.CharField(max_length=60, blank=True, null=True)
+    den     = models.CharField(max_length=100)   # numero de orden de compra
+    ban     = models.CharField(max_length=2, blank=True, null=True)
+    cta     = models.CharField(max_length=100)   # NOT NULL
+    tmo     = models.CharField(max_length=1, blank=True, null=True)
+    mos     = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    tc      = models.DecimalField(max_digits=7, decimal_places=3, blank=True, null=True)
+    mou     = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    con     = models.CharField(max_length=200, blank=True, null=True)
+    fet     = models.DateField(blank=True, null=True)
+    fel     = models.DateField(blank=True, null=True)
+    obs     = models.CharField(max_length=100, blank=True, null=True)
+    est     = models.CharField(max_length=1, blank=True, null=True)
+    luo     = models.CharField(max_length=100, blank=True, null=True) #razón social
+    lud     = models.CharField(max_length=100, blank=True, null=True)
+    fes     = models.DateField(blank=True, null=True)
+    hos     = models.CharField(max_length=100, blank=True, null=True)
+    fef     = models.DateField(blank=True, null=True)
+    hof     = models.CharField(max_length=100, blank=True, null=True)
+    ndi     = models.IntegerField(blank=True, null=True)
+    tot     = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    sal     = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    mov     = models.CharField(max_length=2, blank=True, null=True)
+    tga     = models.CharField(max_length=2, blank=True, null=True)
+    adoc    = models.CharField(max_length=100, blank=True, null=True)
+    anum    = models.CharField(max_length=100, blank=True, null=True)
+    afec    = models.DateField(blank=True, null=True)
+    ahor    = models.CharField(max_length=10, blank=True, null=True)
+    apor    = models.CharField(max_length=100, blank=True, null=True)
+    aobs    = models.CharField(max_length=200, blank=True, null=True)
+    aok     = models.CharField(max_length=1, blank=True, null=True)
+    ddoc    = models.CharField(max_length=100, blank=True, null=True)
+    dnum    = models.CharField(max_length=100, blank=True, null=True)
+    dfec    = models.DateField(blank=True, null=True)
+    dhor    = models.CharField(max_length=10, blank=True, null=True)
+    dpor    = models.CharField(max_length=100, blank=True, null=True)
+    dobs    = models.CharField(max_length=200, blank=True, null=True)
+    dok     = models.CharField(max_length=1, blank=True, null=True)
+    lfec    = models.DateField(blank=True, null=True)
+    lmon    = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    lsal    = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    rdoc    = models.CharField(max_length=100, blank=True, null=True)
+    rnum    = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    rfec    = models.DateField(blank=True, null=True)
+    rhor    = models.CharField(max_length=10, blank=True, null=True)
+    rpor    = models.CharField(max_length=100, blank=True, null=True)
+    robs    = models.CharField(max_length=100, blank=True, null=True)
+    rok     = models.CharField(max_length=1, blank=True, null=True)
+    idoc    = models.CharField(max_length=100, blank=True, null=True)
+    inum    = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    ifec    = models.DateField(blank=True, null=True)
+    ihor    = models.CharField(max_length=10, blank=True, null=True)
+    ipor    = models.CharField(max_length=100, blank=True, null=True)
+    iobs    = models.CharField(max_length=200, blank=True, null=True)
+    iok     = models.CharField(max_length=1, blank=True, null=True)
+    iigv    = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    tmos    = models.DecimalField(max_digits=11, decimal_places=2, blank=True, null=True)
+    recf    = models.DateField(blank=True, null=True)
+    rece    = models.CharField(max_length=1, blank=True, null=True, default='0')
+    usu     = models.CharField(max_length=30, blank=True, null=True)
+    aprf    = models.DateField(blank=True, null=True)
+    apro    = models.CharField(max_length=1, blank=True, null=True, default='0')
+    aprd    = models.CharField(max_length=100, blank=True, null=True)
+    guia    = models.IntegerField(blank=True, null=True, default=0)
+    guiae   = models.CharField(max_length=1, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'vc_mov_orden_soli'
+
+    def __str__(self):
+        return self.den
+
+class VcMovOrdenSoliD(models.Model):
+    reg  = models.IntegerField(primary_key=True)        # FK lógico hacia VcMovOrdenSoli.reg
+    num  = models.IntegerField()         # N° de ítem
+    cod  = models.CharField(max_length=100, blank=True, null=True)
+    nom  = models.CharField(max_length=1000, blank=True, null=True)
+    obs  = models.CharField(max_length=50, blank=True, null=True)
+    can  = models.IntegerField(blank=True, null=True)
+    val  = models.DecimalField(max_digits=11, decimal_places=3, blank=True, null=True)
+    tot  = models.DecimalField(max_digits=11, decimal_places=3, blank=True, null=True)
+    alm  = models.CharField(max_length=1, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'vc_mov_orden_soli_d'
+        unique_together = ('reg', 'num')
+
+    def __str__(self):
+        return f'{self.reg}-{self.num} {self.nom}'
+
+
+
 #========================================================================================
 
 

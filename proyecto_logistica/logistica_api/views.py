@@ -27,6 +27,8 @@ from django.views.decorators.csrf import ensure_csrf_cookie, csrf_exempt
 from django.utils import timezone
 from django.db.models import Sum, Count, Q, F, Max, DecimalField, ExpressionWrapper
 from django.db.models.functions import TruncDate, Coalesce
+from django.db.models.functions import ExtractMonth
+
 from django.core.exceptions import ValidationError
 from django.core.cache import cache
 from django.db import transaction
@@ -52,10 +54,32 @@ from django.template.loader import render_to_string
 from django.conf import settings
 import os
 
+from django.db.models import Q
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from .models import LogisticaDashboard
+from .serializers import OrdenOCSerializer
+
+from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.db.models import Q
+
+from .models import VcMovOrdenSoli, VcMovOrdenSoliD
+from .serializers import OrdenOCSerializer
+
 from django.shortcuts import render
 from collections import OrderedDict
 from string import ascii_uppercase
 from copy import deepcopy
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.db.models import Q
+
 
 CACHE_LIST_KEY = "liquidacion_list"
 CACHE_DETAIL_PREFIX = "liquidacion_detail_"
@@ -67,6 +91,7 @@ from django.utils.timezone import now
 from .models import (
     LogisticaDashboard,
     LogisticaDashboardDetalle,
+    VcMovOrdenSoli,
     VcTabAreas,
     AlmTabUmed,
     DashboardCotizacion,
@@ -94,6 +119,7 @@ from .models import (
 from .serializers import (
     DashboardCotizacionTablaSerializer,
     AreasSerializer,
+    OrdenOCSerializer,
     ClientesSerializer,
     EstadoSerializer,
     CotizacionesSerializer,
@@ -250,9 +276,6 @@ def usuario_actual(request):
     return Response(user_data, status=status.HTTP_200_OK)
 
 
-
-
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def usuarios_activos(request):
@@ -288,7 +311,100 @@ def usuarios_activos(request):
 
     return Response(data, status=status.HTTP_200_OK)
 
+###########################################################3
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def logistica_kardex_base_view(request):
+    """
+    Devuelve los movimientos planos para el kardex de un producto:
+    - Une sis_alm_mov_es (cabecera) con sis_alm_mov_es_det (detalle)
+    - Filtra por año, mes (<=) y código de producto
+    - El cálculo de ingreso/salida/saldo se hace en el frontend.
+    """
+
+    try:
+        from datetime import date
+
+        # ==========================
+        # 1) Parámetros
+        # ==========================
+        # Si no mandas anno/mes, se consideran "todos"
+        anno = request.GET.get("anno", "%")   # ej: "2026" o "%"
+        mes  = request.GET.get("mes", "%")    # ej: "03" o "%"
+        cod  = request.GET.get("cod", "%")    # código de producto
+        tmo  = request.GET.get("tmo", "S")    # no se usa aquí, solo lo reenvías al front
+
+        # ==========================
+        # 2) Cabeceras (sis_alm_mov_es)
+        # ==========================
+        cab_qs = LogisticaDashboard.objects.all()
+
+        # Solo filtra por año si anno != "%"
+        if anno != "%":
+            cab_qs = cab_qs.filter(fec__year=anno)
+
+        # Solo filtra por mes si mes != "%"
+        if mes != "%":
+            cab_qs = cab_qs.filter(fec__month__lte=mes)
+
+        # Obtenemos todos los num_reg válidos
+        cab_map = {c.num_reg: c for c in cab_qs}
+        num_regs = list(cab_map.keys())
+
+        if not num_regs:
+            return Response([], status=200)
+
+        # ==========================
+        # 3) Detalle (sis_alm_mov_es_det) filtrado por producto
+        # ==========================
+        det_qs = LogisticaDashboardDetalle.objects.filter(
+            num_reg__in=num_regs
+        )
+
+        if cod != "%":
+            # Si el código es exacto (EV399-4), mejor usar iexact
+            det_qs = det_qs.filter(cod__iexact=cod)
+            # Si quisieras "contiene", usa cod__icontains=cod
+
+        # Ordenar igual que en el PHP: por fecha de cabecera ascendente
+        detalles = sorted(
+            list(det_qs),
+            key=lambda d: (
+                cab_map[d.num_reg].fec if d.num_reg in cab_map else None,
+                d.num_reg,
+            ),
+        )
+
+        # ==========================
+        # 4) Construir lista de movimientos planos
+        # ==========================
+        movimientos = []
+        for det in detalles:
+            cab = cab_map.get(det.num_reg)
+            if not cab:
+                continue
+
+            movimientos.append({
+                "fec": cab.fec.strftime("%Y-%m-%d") if cab.fec else None,
+                "ope": det.ope,               # tipo (E/S)
+                "dor": cab.dor,               # referencia
+                "tmo": cab.tmo,               # moneda del movimiento
+                "tc": float(cab.tc or 0),     # tipo de cambio
+                "nom": det.nom,
+                "cod": det.cod,
+                "can": float(det.can or 0),
+                "val": float(det.val or 0),
+                "tot": float(det.tot or 0),
+            })
+
+        return Response(movimientos, status=200)
+
+    except Exception as e:
+        import traceback
+        print("Error en logistica_kardex_base_view:", traceback.format_exc())
+        return Response({"error": str(e)}, status=500)
 
 #========================================================================================
 
@@ -801,24 +917,133 @@ def logistica_modal_view(request, num_reg):
     
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def logistica_modal_view_sal(request, num_reg):
+    """
+    Retorna los detalles completos de un movimiento logístico
+    usando num_reg como clave principal.
+    """
+
+    try:
+        # ==========================
+        # 1️⃣ CABECERA
+        # ==========================
+        cabecera = LogisticaDashboard.objects.filter(num_reg=num_reg).first()
+
+        if not cabecera:
+            return Response(
+                {"error": f"No se encontró el movimiento con número {num_reg}"},
+                status=404
+            )
+
+        # ==========================
+        # 2️⃣ DETALLE
+        # ==========================
+        detalles = LogisticaDashboardDetalle.objects.filter(num_reg=num_reg)
+
+        total_soles = 0
+        total_dolares = 0
+        items = []
+
+        for d in detalles:
+            total_soles += float(d.sol or 0)
+            total_dolares += float(d.dol or 0)
+
+            items.append({
+                "num_reg": d.num_reg,
+                "codigo": d.cod,
+                "nombre": d.nom,
+                "unidad": d.um,
+                "cantidad": d.can,
+                "valor_unitario": float(d.val or 0),
+                "total": float(d.tot or 0),
+                "soles": float(d.sol or 0),
+                "dolares": float(d.dol or 0),
+                "observacion": d.obs,
+                "operacion": d.ope,
+            })
+
+        # ==========================
+        # 3️⃣ RESPONSE FINAL
+        # ==========================
+        response_data = {
+            "cabecera": {
+                "numero": cabecera.num_reg,
+                "fecha": cabecera.fec,
+                "operacion": cabecera.ope,
+                "referencia": cabecera.mov,
+                "numero_doc": cabecera.nfa,
+                "orden_compra": cabecera.oco,
+                "almacen": cabecera.alm,
+                "proveedor_codigo": cabecera.cor,
+                "responsable": cabecera.nom1,
+                "obs_doc": cabecera.nom2,
+                "moneda": cabecera.tmo,
+                "tipo_cambio": float(cabecera.tc or 0),
+                "usuario": cabecera.reg,
+                "observacion": cabecera.obs,
+                "nro_guia": cabecera.ngu,
+                "estado": cabecera.est,
+                "anulado": cabecera.anulado,
+                "tipo_movimiento": cabecera.tip,
+                "razon_social": cabecera.dor,
+
+
+            },
+            "items": items,
+            "resumen": {
+                "totalItems": len(items),
+                "totalSoles": round(total_soles, 2),
+                "totalDolares": round(total_dolares, 2),
+            }
+        }
+
+        return Response(response_data)
+
+    except Exception as e:
+        import traceback
+        print("Error en logistica_modal_view_sal:", traceback.format_exc())
+        return Response({"error": str(e)}, status=500)
+    
+
+from django.db.models import Q, Max
+from django.db.models.functions import Trim
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def logistica_productos_view(request):
     q = request.GET.get("q", "")
 
-    productos = LogisticaDashboardDetalle.objects.all()
+    # ✅ Normalizamos campos con TRIM
+    productos = LogisticaDashboardDetalle.objects.annotate(
+        cod_trim=Trim('cod'),
+        nom_trim=Trim('nom'),
+    )
 
-    if q:  # ✅ Solo filtra si hay texto
+    if q:
         productos = productos.filter(
-            Q(cod__icontains=q) | Q(nom__icontains=q)
+            Q(cod_trim__icontains=q) | Q(nom_trim__icontains=q)
         )
 
-    productos = productos.values("cod", "nom", "um").distinct()[:100]
-    data = [{"codigo": p["cod"], "nombre": p["nom"], "unidad": p["um"]} for p in productos]
+    # ✅ Distinct por código+nombre ya recortados
+    productos = (
+        productos
+        .values("cod_trim", "nom_trim")
+        .annotate(um=Max("um"))
+        .order_by("cod_trim")[:100]
+    )
+
+    data = [
+        {
+            "codigo": p["cod_trim"] or "",
+            "nombre": p["nom_trim"] or "",
+            "unidad": (p["um"] or "").strip(),
+        }
+        for p in productos
+        if p["cod_trim"]
+    ]
     return Response(data)
-
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -887,31 +1112,75 @@ def logistica_next_num_reg(request):
         'num_reg_formatted': str(siguiente).zfill(8),  # ej: "00000025"
     })
 
-# Detalle de cotización por num_reg
+
+###################################################################3
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def cotizacion_modal_view(request, num_reg):
+def buscar_ordenes_oc(request):
     """
-    Retorna los detalles completos de una cotización usando num_reg 
-    (clave principal real del registro).
+    GET /logistica/dashboard/ordenes-oc/?proveedor=...&numero=...
+    - proveedor: RUC o razón social
+    - numero: número de orden
     """
-    try:
-        # Buscar la cotización por num_reg
-        cot = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-        if not cot:
-            return Response(
-                {"error": f"No se encontró la cotización con num_reg {num_reg}"},
-                status=404
-            )
+    proveedor = (request.query_params.get('proveedor') or '').strip()
+    numero = (request.query_params.get('numero') or '').strip()
 
-        # Serializar
-        serializer = DashboardCotizacionModalSerializer(cot)
-        return Response(serializer.data)
+    qs = VcMovOrdenSoli.objects.filter(adoc='ORDEN DE COMPRA')
+
+    if proveedor:
+        qs = qs.filter(Q(luo__icontains=proveedor))
+
+    if numero:
+        qs = qs.filter(den__icontains=numero)
+
+    qs = qs.order_by('-fec')[:50]
+
+    serializer = OrdenOCSerializer(qs, many=True)
+    return Response(serializer.data)
+
+
+# views.py
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def detalle_orden_compra(request, reg):
+    print("▶ detalle_orden_compra reg =", reg)  # debug
+
+    try:
+        items = (
+            VcMovOrdenSoliD.objects
+            .filter(reg=reg)
+            .order_by('num')
+        )
+
+        print("▶ cantidad items =", items.count())
+
+        data = [
+            {
+                "num": it.num,
+                "codigo": it.cod or "",
+                "descripcion": it.nom or "",
+                "um": it.alm or "UND",
+                "cant": float(it.can or 0),
+                "valor": float(it.val or 0),
+                "total": float(it.tot or 0),
+            }
+            for it in items
+        ]
+
+        return Response(data)
 
     except Exception as e:
         import traceback
-        print("Error en cotizacion_modal_view:", traceback.format_exc())
-        return Response({"error": str(e)}, status=500)
+        print("❌ ERROR detalle_orden_compra:", e)
+        traceback.print_exc()
+        return Response(
+            {"detail": "Error en detalle_orden_compra", "error": str(e)},
+            status=500,
+        )
+
+
+
 
 @api_view(["GET", "POST", "PUT"])
 @permission_classes([IsAuthenticated])

@@ -24,8 +24,10 @@ urlpatterns = [
     # DASHBOARD PRINCIPAL
     path('logistica/dashboard/', views.logistica_dashboard_view, name="logistica_dashboard_view"),
     path('logistica/dashboard/modal/<str:num_reg>/', views.logistica_modal_view, name="logistica_modal_view"),
+        path('logistica/dashboard/modal/<str:num_reg>/', views.logistica_modal_view_sal, name="logistica_modal_view_sal"),
+
     path('cotizaciones/aprobacion_cotizacion', views.cotizaciones_dashboard_view, name="cotizaciones_dashboard_view"),
-    path('cotizaciones/modal/<str:num_reg>/', views.cotizacion_modal_view, name='cotizacion_modal_view'),
+    path('logistica/dashboard/modal/<str:num_reg>/', views.logistica_modal_view_sal, name='logistica_modal_view_sal'),
     path("cotizacion/<int:num_reg>/suministros/", views.listar_suministros, name="listar_suministros"),
     path("cotizacion/<int:num_reg>/servicios/", views.listar_servicios, name="listar_servicios"),
     path('cotizacion/<int:num_reg>/mensajes/', views.listar_mensajes, name='listar_mensajes'),
@@ -37,6 +39,22 @@ urlpatterns = [
     path('logistica/dashboard/umed/', views.logistica_umed_view, name="logistica_umed"),
     path('logistica/dashboard/areas/', views.logistica_areas_view, name="logistica_areas"),
     path('logistica/dashboard/next-num-reg/',     views.logistica_next_num_reg, name='logistica-next-num-reg'),
+     path(
+        'logistica/dashboard/ordenes-oc/',
+        views.buscar_ordenes_oc,
+        name='buscar_ordenes_oc'
+    ),
+    path(
+        'logistica/dashboard/ordenes-oc/<int:reg>/items/',
+        views.detalle_orden_compra,
+        name='detalle_orden_compra'
+    ),
+    path(
+        'logistica/kardex_base/',
+        views.logistica_kardex_base_view,
+        name='logistica_kardex_base_view'
+    ),
+
     # BUSQUEDA
     path('clientes/<str:empresa>/encargados/', views.buscar_encargados_por_empresa, name='buscar_encargados_por_empresa'),
 

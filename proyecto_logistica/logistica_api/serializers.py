@@ -68,6 +68,32 @@ class SegUsuarioSerializer(serializers.ModelSerializer):
     def get_banco_nombre(self, obj):
         return obj.get_banco_nombre() if hasattr(obj, 'get_banco_nombre') else None
 
+
+# serializers.py
+from rest_framework import serializers
+from .models import VcMovOrdenSoli
+
+class OrdenOCSerializer(serializers.ModelSerializer):
+    codigo  = serializers.CharField(source='den')
+    cliente = serializers.CharField(source='luo')
+    moneda  = serializers.CharField(source='tmo')  # ✅
+    tcambio = serializers.DecimalField(source='tc', max_digits=7, decimal_places=3)
+    monto_soles   = serializers.DecimalField(source='mos', max_digits=15, decimal_places=2)
+    monto_dolares = serializers.DecimalField(source='mou', max_digits=11, decimal_places=2)
+
+    class Meta:
+        model = VcMovOrdenSoli
+        fields = [
+            'reg',
+            'codigo',
+            'cliente',
+            'moneda',
+            'tcambio',
+            'monto_soles',
+            'monto_dolares',
+        ]
+
+
 # Token Perzonalizado para login
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod

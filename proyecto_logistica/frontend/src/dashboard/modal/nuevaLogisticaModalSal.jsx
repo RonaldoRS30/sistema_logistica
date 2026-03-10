@@ -539,7 +539,7 @@ const handleCloseUmed = () => {
               </div>
               <div>
                 <h3 className="text-sm font-black text-white uppercase tracking-tight">
-                  Entrada de Almacén
+                  Salida de Almacén
                 </h3>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                   Gestión de Inventarios y Traslados

@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/services/api";
-import { BriefcaseBusiness, FilePlus, Eye, TrendingUp, DollarSign, BarChart3, Filter, Loader, PieChart, Calculator, FileSpreadsheet, Wallet2, Landmark, Scale, Coins, User } from "lucide-react";
+import { BriefcaseBusiness, FilePlus, Eye, TrendingUp, DollarSign, BarChart3, Filter, Loader, PieChart, Calculator, FileSpreadsheet, Wallet2, Landmark, Scale, Coins, User, MoreHorizontal, ClipboardCheck, LayoutDashboard , History, Globe, ListTodo, Layout, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "react-toastify";
@@ -12,51 +12,53 @@ import Table from "@/components/ui/table";
 import KpiCard from "@/components/ui/KpiCard";
 import FilterCard from "@/components/ui/FilterCard";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { getEstadoColor, getEstadoNombre, ESTADO_STATE_COLORS } from "@/components/ui/colors";
-import AprobacionCotizacionModal from "../aprobacion_cotizacion/AprobacionCotizacionModal";
+import { getEnvioColor, getEnvioNombre, ENVIO_STATE_COLORS } from "@/components/ui/colors";
+import AprobacionCotizacionModal from "@/dashboard/aprobacion_cotizacion/AprobacionCotizacionModal.jsx";
 import { useNavigate } from "react-router-dom";
-import NuevaLogisticaModalSal from "../modal/nuevaLogisticaModalSal";
+import CotizacionNuevaModal from "./CotizacionNuevaModal";
+import TablaCoti from "../../components/TablaCoti";
+import TablaHistorial from "../../components/TablaHistorial";
+import KpisCotizaciones from "../../components/KpisCotizaciones";
+import kardex from "@/dashboard/kardexLogistica/kardex.jsx";
 
-const fetchLogisticaDashboard = async ({ queryKey }) => {
+const fetchCotizacionesAprobacion = async ({ queryKey }) => {
   const [_key, params] = queryKey;
 
   const token = localStorage.getItem("access_token");
 
-  // 1) Usuario logueado
-  const usuarioRes = await api.get("usuario-actual/", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const nombUsuario = usuarioRes.data?.usuario_usu;
-
-  // 2) Llamada al endpoint
-  const { data } = await api.get("logistica/dashboard/", {
-    headers: { Authorization: `Bearer ${token}` },
-    params: { ...params },
-  });
-
-  const tabla = Array.isArray(data?.tabla) ? data.tabla : [];
-
-  // 🔥 3) FILTRAR SOLO SALIDAS (ope = "S")
-  const soloSalidas = tabla.filter(
-    (item) => String(item.ope).trim().toUpperCase() === "S"
+  const { data } = await api.get(
+    "cotizaciones/aprobacion_cotizacion",
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      params,
+    }
   );
 
+  const tabla = Array.isArray(data?.tabla) ? data.tabla : [];
+  const dashboard = data?.dashboard || {};
+
+  const dataLimpia = tabla
+    .map(item => ({
+      ...item,
+      cliente: item.cliente?.trim() || "-",
+      area: item.area?.trim() || "-",
+      estado: item.estado?.trim() || "-",
+    }))
+
   return {
-    movimientos: soloSalidas,
-    stats: data.dashboard || {},
-    anno: data.anno,
-    usuario: nombUsuario,
+    cotizaciones: dataLimpia,
+    stats: dashboard,
   };
 };
 
-export default function SalidaAlmacen() {
+export default function logisticaKardex() {
   const { authUser: user, logout } = useAuth();
+  const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState("Todos");
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
   const [detalleOpen, setDetalleOpen] = useState(false);
-  const [logisticaSeleccionada, setLogisticaSeleccionada] = useState(null);
+  const [cotizacionSeleccionada, setCotizacionSeleccionada] = useState(null);
   const navigate = useNavigate();
   const [openNueva, setOpenNueva] = useState(false);
   const [annoActual, setAnnoActual] = useState(new Date().getFullYear()); // año actual por defecto
@@ -84,17 +86,18 @@ export default function SalidaAlmacen() {
     isFetching,
     error,
   } = useQuery({
-    queryKey: ["cotizaciones", currentFilters],
-    queryFn: fetchLogisticaDashboard,
+    queryKey: ["aprobacion-cotizaciones", currentFilters],
+    queryFn: fetchCotizacionesAprobacion,
     keepPreviousData: true,
   });
-  const cotizaciones = data?.movimientos || [];
-  
+  const cotizaciones = data?.cotizaciones || [];
   const stats = data?.stats || {};
 
   const { scrollY } = useScroll();
   const shadowOpacity = useTransform(scrollY, [0, 50], [0, 0.25]);
   const blurValue = useTransform(scrollY, [0, 100], [4, 8]);
+
+  const [tabActiva, setTabActiva] = useState("resumen");
 
   // Efecto scroll flotante
   useEffect(() => {
@@ -106,7 +109,7 @@ export default function SalidaAlmacen() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [shadowOpacity, blurValue]);
 
-  const logisticaEntrada = cotizaciones
+  const cotizacionesFiltradas = cotizaciones
     .filter((c) => {
       const pasaEstado = filtro === "Todos" || c.estado_nombre === filtro;
       const pasaFecha =
@@ -153,6 +156,10 @@ export default function SalidaAlmacen() {
       anno: filters.anio || annoActual,
       mes: filters.mes || "%",
       estado: filters.estado || "%",
+      cliente: filters.cliente || "%",
+      area: filters.area || "%",
+      campo: filters.generalCampo || "",
+      valor: filters.generalValor || "",
     };
 
     const API_URL = import.meta.env.VITE_API_URL;
@@ -170,47 +177,172 @@ export default function SalidaAlmacen() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="min-h-screen w-full flex flex-col bg-gray-50 font-sans"
+      className="min-h-screen w-full flex flex-col bg-white font-sans"
     >
-      <div className="flex-1 flex flex-col py-[clamp(8px,2vw,24px)] px-[clamp(8px,2vw,24px)]">
+      <div className="flex-1 flex flex-col">
 
-        {/* HEADER */}
+        {/* HEADER ESTILO ERP COMPACTO */}
         <motion.div
           style={{
-            boxShadow: shadowOpacity.get() > 0 ? `0 2px 8px rgba(0,0,0,${shadowOpacity.get()})` : "none",
+            boxShadow: shadowOpacity.get() > 0 ? "0 2px 8px rgba(0,0,0,0.04)" : "none",
             backdropFilter: `blur(${blurValue.get()}px)`,
           }}
-          className="sticky top-0 z-30 bg-white/90 border-b border-gray-200 rounded-2xl shadow-md px-[clamp(12px,2vw,20px)] py-[clamp(8px,1.2vw,12px)] mb-[clamp(10px,2vw,16px)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-[clamp(8px,1.5vw,12px)]"
+          className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 pt-4 flex flex-col gap-1"
         >
-          <div className="flex-1 min-w-0">
-            <motion.h1
-              className="font-bold flex items-center gap-3 truncate"
-              style={{ fontSize: "clamp(1rem,2.2vw,2rem)" }}
-            >
-              <BriefcaseBusiness className="w-[clamp(20px,3vw,30px)] h-[clamp(20px,3vw,30px)] text-gray-900" />
-              Salida a Almacén
-            </motion.h1>
-            <motion.p
-              className="mt-1 text-gray-600 italic truncate"
-              style={{ fontSize: "clamp(0.7rem,0.9vw,1rem)" }}
-            >
-              Gestión de tus <span className="font-semibold text-blue-600">salidas de almacén</span>.
-            </motion.p>
-          </div>
 
-          {/* BOTÓN NUEVA COTIZACIÓN */}
-          <div className="flex flex-wrap gap-2 justify-end">
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+          {/* TOP */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+
+            {/* IZQUIERDA */}
+            <div className="flex-1 min-w-0">
+
+              {/* Breadcrumb */}
+              <nav className="flex items-center gap-2 text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">
+                <span className="hover:text-cyan-600 cursor-pointer transition-colors">Comercial</span>
+                <span>/</span>
+                <span>Cotizaciones</span>
+              </nav>
+
+              {/* Título */}
+              <div className="flex items-center gap-2">
+                <div className="bg-cyan-600/10 text-cyan-700 w-7 h-7 rounded-md flex items-center justify-center shrink-0">
+                  <BriefcaseBusiness className="w-4 h-4" />
+                </div>
+
+                <h1 className="text-lg font-semibold text-slate-800 tracking-tight truncate">
+                  Aprobación de Cotizaciones
+                </h1>
+              </div>
+            </div>
+
+
+            {/* ACCIONES DINÁMICAS */}
+            <div className="flex items-center gap-2">
+
               <Button
                 onClick={() => setOpenNueva(true)}
-                variant="ghost"
-                className="text-[11px] font-black uppercase tracking-widest text-teal-700 hover:bg-teal-100 border border-transparent hover:border-teal-200 rounded-xl h-9 px-8 transition-all"
-              > 
-                <FilePlus className="w-4 h-4"/>Nuevo
+                className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-medium px-4 h-8 rounded-md flex items-center gap-2 shadow-sm transition"
+              >
+                <FilePlus size={14} />
+                Nueva
               </Button>
-            </motion.div>
+
+              <button className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition">
+                <MoreHorizontal size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* SUBNAV ESTILO JIRA */}
+          <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar">
+            {[
+              { id: "resumen", label: "Resumen", icon: <Globe size={16} /> },
+              { id: "pendientes", label: "Cotizaciones", icon: <ListTodo size={16} /> },
+              { id: "tablero", label: "Tablero", icon: <Layout size={16} /> },
+              { id: "historial", label: "Historial", icon: <History size={16} /> },
+            ].map((tab) => {
+              const isActive = tabActiva === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setTabActiva(tab.id)}
+                  className={`group relative flex items-center gap-2 px-3 pb-3 text-sm font-medium transition-all outline-none ${
+                    isActive 
+                      ? "text-cyan-600" 
+                      : "text-slate-600 hover:bg-slate-50 rounded-t-sm"
+                  }`}
+                >
+                  {/* Icono con color dinámico */}
+                  <span className={`${isActive ? "text-cyan-600" : "text-slate-400 group-hover:text-slate-600"}`}>
+                    {tab.icon}
+                  </span>
+                  
+                  <span>{tab.label}</span>
+
+                  {/* Indicador Activo (Línea azul de Jira) */}
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeTabIndicator"
+                      className="absolute bottom-0 left-0 right-0 h-[3px] bg-cyan-600 rounded-t-full"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+            
+            {/* Botón "+" de Jira para añadir más tabs */}
+            <button className="p-1.5 mb-2 ml-1 text-slate-500 hover:bg-slate-100 rounded transition-colors">
+              <Plus size={18} />
+            </button>
           </div>
         </motion.div>
+
+        {/* CONTENIDO DINÁMICO */}
+        <div className="p-6 flex flex-col flex-1 gap-6">
+          {tabActiva === "resumen" && (
+            <KpisCotizaciones stats={stats} isFetching={isFetching} />
+          )}
+
+          {tabActiva === "pendientes" && (
+            <TablaCoti
+              data={cotizacionesFiltradas}
+              clientesMap={clientesMap}
+              isFetching={isFetching}
+              onRowClick={(c) => {
+                setCotizacionSeleccionada(c);
+                setDetalleOpen(true);
+              }}
+              getEnvioColor={getEnvioColor}
+              getEnvioNombre={getEnvioNombre}
+              
+              // 1. Cálculo de filtros activos para el Badge del botón
+              activeFiltersCount={Object.values(currentFilters).filter(v => v !== "%" && v !== "" && v !== annoActual).length}
+              
+              // 2. Acción de limpiar
+              onClearFilters={() => setCurrentFilters({
+                anno: new Date().getFullYear(),
+                mes: "%", cliente: "%", estado: "%", area: "%", envio: "%",
+                campo: "", valor: "", generalCampo: "", generalValor: "",
+                index: 1, num_regs: 10
+              })}
+              
+              // 3. El componente inyectado (Desnudado para el Popover)
+              filterComponent={
+                <FilterCard
+                  dashboard="aprobacion-cotizaciones"
+                  // Clave: Sin sombras ni bordes porque el Popover ya los tiene
+                  className="w-full bg-transparent shadow-none border-none p-0 m-0"
+                  compact={true}
+                  processing={processingFilters}
+                  onReport={handleReport}
+                  onProcess={async (filters, event) =>{
+                    if (event) event.preventDefault();
+                    setProcessingFilters(true);
+                    try {
+                      const params = {
+                        anno: filters.anio || annoActual,
+                        mes: filters.mes || "%",
+                        cliente: filters.cliente || "%",
+                        estado: filters.estado || "%",
+                        area: filters.area || "%",
+                        envio: filters.envio || "%",
+                        ...(filters.campo && filters.valor ? { campo: filters.campo, valor: filters.valor } : {}),
+                        ...(filters.fechaInicio ? { fechaInicio: filters.fechaInicio } : {}),
+                        ...(filters.fechaFin ? { fechaFin: filters.fechaFin } : {}),
+                      };
+                      setCurrentFilters(params);
+                    } finally {
+                      setProcessingFilters(false);
+                    }
+                  }}
+                />
+              }
+            />
+          )}
+
+          {tabActiva === "historial" &&<TablaHistorial />}
+        </div>
 
         {/* SECCIÓN KPIs - V&C BUSINESS INTELLIGENCE */}
         <div className="relative grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-10 w-full">
@@ -318,8 +450,6 @@ export default function SalidaAlmacen() {
               <div className={`absolute -right-2 -bottom-2 opacity-[0.08] ${kpi.text}`}>
                 <kpi.icon className="w-24 h-24 rotate-[15deg]" />
               </div>
-
-              
             </motion.div>
           ))}
         </div>
@@ -327,7 +457,7 @@ export default function SalidaAlmacen() {
         {/* FILTROS */}
         <div className="w-full mb-4">
           <FilterCard
-            dashboard="cotizaciones"
+            dashboard="aprobacion-cotizaciones"
             className="w-full"
             compact
             processing={processingFilters}
@@ -361,135 +491,9 @@ export default function SalidaAlmacen() {
           />
         </div>
 
-        {/* TABLA DE COTIZACIONES - V&C ENTERPRISE DEFINITIVE */}
-        <div className="hidden md:block w-full flex-1 overflow-auto relative rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
-          {isFetching && (
-            <div className="absolute inset-0 z-30 bg-white/60 backdrop-blur-[2px] flex items-center justify-center transition-all">
-              <div className="flex flex-col items-center gap-3">
-                <div className="relative">
-                  <Loader className="w-10 h-10 animate-spin text-teal-600" />
-                  <div className="absolute inset-0 rounded-full border-4 border-teal-100 opacity-20"></div>
-                </div>
-                <span className="text-[10px] font-[900] text-slate-500 uppercase tracking-[0.25em] animate-pulse">
-                  Sincronizando Datos
-                </span>
-              </div>
-            </div>
-          )}
-
-          <Table
-            /* CABECERAS: Estilo "High-Contrast Enterprise" */
-            headers={[
-              "Registro",
-              "Fecha",
-              "OCompra",
-              "Código",
-              "Nombre",
-              "Factura",
-              "Guía",
-              "Soles",
-              "Dólares",
-              "",
-              ""
-            ].map(h => (
-              <span className="text-sm font-[950] uppercase tracking-[0.2em] text-slate-800 text-center block">
-                {h}
-              </span>
-            ))}
-
-            data={logisticaEntrada}
-
-            /* 👉 CLICK EN TODA LA FILA */
-            onRowClick={(c) => {
-              setLogisticaSeleccionada(c);
-              setDetalleOpen(true);
-            }}
-
-            renderRow={(c) => [
-              // 1. REGISTRO
-              <span className="text-xs font-semibold text-slate-800 tabular-nums text-left leading-none">
-                {c.num_reg}
-              </span>,
-
-              // 2. FECHA
-              <span className="text-xs font-semibold text-slate-800 text-left tracking-tight uppercase leading-none">
-                {c.fec}
-              </span>,
-
-              // 3. OCOMPRA
-              <span className="text-xs font-semibold text-slate-800 text-left tracking-tight uppercase leading-none">
-                {c.oco}
-              </span>,
-
-              // 4. CODIGO
-              <span className="text-xs font-semibold text-slate-800 text-left tracking-tight uppercase leading-none">
-                {c.fec}
-              </span>,
-
-              // 5. NOMBRE 
-              <span className="text-xs font-semibold text-slate-800 uppercase tracking-tight text-left bg-slate-50 px-2 py-[2px] rounded-md border border-slate-100">
-                {c.dor}
-              </span>,
-
-              // 6. FACTURA
-              <span className="text-xs font-semibold uppercase tracking-wide text-left text-slate-800 leading-none">
-                {c.nfa}
-              </span>,
-
-              // 7. guía
-              <div className="text-left py-1">
-                <span className="text-xs font-bold text-slate-800 tabular-nums">
-                  {c.ngu}
-                </span>
-              </div>,
-
-              // 8. SOLES
-              <div className="text-left py-1">
-                <span className="text-xs font-bold text-slate-800 tabular-nums">
-                  {c.sol}
-                </span>
-              </div>,
-              
-              // 9. DÓLARES
-              <div className="text-left py-1">
-                <span className="text-xs font-bold text-slate-800 tabular-nums">
-                  {c.dol}
-                </span>
-              </div>,              
-
-              // 8. BOTÓN — evita doble trigger
-              <div className="flex justify-start">
-                <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setLogisticaSeleccionada(c);
-                      setDetalleOpen(true);
-                    }}
-                    className="h-7 w-7 p-0 rounded-2xl bg-white hover:bg-teal-50 text-slate-400 hover:text-teal-600 border border-transparent hover:border-teal-100 transition-all shadow-none hover:shadow-sm"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </Button>
-                </motion.div>
-              </div>,
-
-              // 9. ENVÍO
-              <div className="flex items-center justify-start">
-                <div
-                  className="w-3.5 h-3.5 rounded-full shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)] border border-white ring-1 ring-slate-200"
-                  style={{ backgroundColor: getEstadoColor(c.est) }}
-                  title={getEstadoNombre(c.est)}
-                />
-              </div>,
-            ]}
-          />
-        </div>
-
         {/* CARDS MOBILE */}
         <div className="flex flex-col gap-3 md:hidden">
-          {logisticaEntrada.map(c => (
+          {cotizacionesFiltradas.map(c => (
             <motion.div
               key={c.numero}
               initial={{ opacity: 0, y: 10 }}
@@ -497,7 +501,7 @@ export default function SalidaAlmacen() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.25 }}
               className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm hover:shadow-md cursor-pointer transition-all duration-200"
-              onClick={() => { setLogisticaSeleccionada(c); setDetalleOpen(true); }}
+              onClick={() => { setCotizacionSeleccionada(c); setDetalleOpen(true); }}
             >
               <div className="font-semibold text-[clamp(0.9rem,2vw,1.1rem)]">{c.numero}</div>
               <div className="mt-2 flex flex-col gap-1 text-gray-600 text-[clamp(0.65rem,1.5vw,0.85rem)]">
@@ -512,51 +516,26 @@ export default function SalidaAlmacen() {
           ))}
         </div>
 
-        {/* LEYENDA DE ESTADOS */}
-        <div className="
-          flex flex-wrap 
-          justify-center md:justify-start 
-          items-center 
-          gap-3 md:gap-4 
-          p-3 
-          mt-4 
-          rounded-xl 
-          border border-gray-200 
-          bg-white 
-          shadow-sm 
-          w-full
-        ">
-          {[
-            { label: "Abierto", color: ESTADO_STATE_COLORS["0"] },
-            { label: "Cerrado", color: ESTADO_STATE_COLORS["1"] },
-          ].map(({ label, color }) => (
-            <div key={label} className="flex items-center gap-2 min-w-[120px] md:min-w-[140px]">
-              <span className="w-3 h-3 rounded-full border border-gray-300" style={{ backgroundColor: color }}></span>
-              <span className="text-gray-600 truncate text-xs md:text-[clamp(0.65rem, 1vw, 1rem)]">{label}</span>
-            </div>
-          ))}
-        </div>
-
         {/* MODAL */}
-              <NuevaLogisticaModalSal
-                open={openNueva}
-                onClose={() => setOpenNueva(false)}
-                modo="C"
-                tipo="N"
-                dashboard="C"
-              />
-      
-              {logisticaSeleccionada && (
-                <NuevaLogisticaModalSal
-                  key={logisticaSeleccionada.num_reg}
-                  open={detalleOpen}
-                  onClose={() => setDetalleOpen(false)}
-                  logistica={logisticaSeleccionada}
-                  modo="C"
-                  tipo="V"
-                  dashboard="C"
-                />
-              )}
+        <CotizacionNuevaModal
+          open={openNueva}
+          onClose={() => setOpenNueva(false)}
+          modo="A"
+          tipo="N"
+          dashboard="A"
+        />
+
+        {cotizacionSeleccionada && (
+          <AprobacionCotizacionModal
+            key={cotizacionSeleccionada.num_reg}
+            open={detalleOpen}
+            onClose={() => setDetalleOpen(false)}
+            cotizacion={cotizacionSeleccionada}
+            modo="A"
+            tipo="V"
+            dashboard="A"
+          />
+        )}
       </div>
     </motion.div>
   );

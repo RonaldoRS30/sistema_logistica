@@ -22,9 +22,9 @@ import EntradaAlmacen from "./dashboard/entrada/EntradaAlm.jsx";
 import SalidaAlmacen from "./dashboard/salida/SalidaAlm.jsx";
 import Cotizaciones from "./dashboard/cotizaciones/Cotizaciones.jsx";
 import RevisionCotizaciones from "./dashboard/revision_cotizaciones/RevisionCotizaciones";
-import AprobacionCotizacion from "@/dashboard/aprobacion_cotizacion/AprobacionCotizacion.jsx";
 import SeguimientoCotizaciones from "@/dashboard/seguimiento_cotizaciones/SeguimientoCotizaciones.jsx";
 import CotizacionesHome from "./dashboard/Home/CotizacionesHome";
+import KardexDashboard from "./dashboard/kardexLogistica/kardexDashboard.jsx";
 
 // MODAL NUEVA COTIZACIÓN
 import CotizacionNuevaModal from "./dashboard/aprobacion_cotizacion/CotizacionNuevaModal";
@@ -62,6 +62,9 @@ export default function App() {
               {/* Salida Almacén */}
               <Route path="salida-almacen" element={<SalidaAlmacen />} />
 
+              {/* Kardex */}
+              <Route path="kardex" element={<KardexDashboard />} />
+
               {/* Cotizaciones */}
               <Route path="cotizaciones" element={<Cotizaciones />} />
 
@@ -69,12 +72,6 @@ export default function App() {
               <Route
                 path="revision-cotizacion"
                 element={<RevisionCotizaciones />}
-              />
-
-              {/* Aprobación */}
-              <Route
-                path="aprobacion-cotizacion"
-                element={<AprobacionCotizacion />}
               />
 
               {/* Seguimiento */}

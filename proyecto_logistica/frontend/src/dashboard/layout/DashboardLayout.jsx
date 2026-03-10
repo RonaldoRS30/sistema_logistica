@@ -26,7 +26,7 @@ const SIDEBAR_ITEMS = [
       { to: "/dashboard/entrada-almacen", label: "Entrada a Almacen", icon: FileText },
       //{ to: "/dashboard/cotizaciones", label: "Entrada a Almacen", icon: FileText },
       { to: "/dashboard/salida-almacen", label: "Salida a Almacen", icon: FileText },
-      { to: "/dashboard/aprobacion-cotizacion", label: "Kardex", icon: FileText },
+      { to: "/dashboard/kardex", label: "Kardex", icon: FileText },
      // { to: "/dashboard/seguimiento-cotizaciones", label: "Seguimiento Cotizaciones", icon: BarChart2 },
     ],
   },
