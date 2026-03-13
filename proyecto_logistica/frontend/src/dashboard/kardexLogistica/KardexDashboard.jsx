@@ -2,10 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/services/api";
-import {
-  BriefcaseBusiness,
-  Loader,
-} from "lucide-react";
+import { BriefcaseBusiness, Loader } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useScroll, useTransform, motion } from "framer-motion";
@@ -26,7 +23,7 @@ export default function KardexDashboard() {
   const [annoActual, setAnnoActual] = useState(new Date().getFullYear());
   const [processingFilters, setProcessingFilters] = useState(false);
 
-  // filtros actuales (para reporte, etc.)
+  // filtros actuales
   const [filters, setFilters] = useState({
     anno: new Date().getFullYear(),
     mes: "%",
@@ -36,7 +33,7 @@ export default function KardexDashboard() {
     envio: "%",
     num_reg: "",
     moneda: "S",
-    cod: "%", // producto
+    cod: "%", 
     campo: "",
     valor: "",
     generalCampo: "",
@@ -45,20 +42,15 @@ export default function KardexDashboard() {
     num_regs: 10,
   });
 
-  // datos de kardex
   const [kardexRows, setKardexRows] = useState([]);
   const [kardexSeleccionado, setKardexSeleccionado] = useState(null);
   const [kardexDetalleOpen, setKardexDetalleOpen] = useState(false);
-
-  // si todavía quieres usar logisticaEntrada / cards móviles de cotizaciones,
-  // tendrás que traerlos con otro useEffect/useQuery.
   const [logisticaEntrada, setLogisticaEntrada] = useState([]);
 
   const { scrollY } = useScroll();
   const shadowOpacity = useTransform(scrollY, [0, 50], [0, 0.25]);
   const blurValue = useTransform(scrollY, [0, 100], [4, 8]);
 
-  // Efecto scroll flotante
   useEffect(() => {
     const onScroll = () => {
       shadowOpacity.set(Math.min(window.scrollY / 150, 0.2));
@@ -68,42 +60,30 @@ export default function KardexDashboard() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [shadowOpacity, blurValue]);
 
-  // ============================
-  // 1) LÓGICA DE KARDEX (JS)
-  // ============================
   const calcularKardexDesdeMovimientos = (movs, tmo) => {
     let tcan = 0, tval = 0, ttot = 0;
     const rows = [];
 
     movs.forEach((row) => {
       const esEntrada = row.ope === "E";
-
       let ecan = 0, evalp = 0, etot = 0;
       let scan = 0, sval = 0, stot = 0;
 
       if (esEntrada) {
         ecan = Number(row.can || 0);
-
         if (tmo === "S") {
-          evalp = row.tmo === "S"
-            ? Number(row.val || 0)
-            : Number(row.val || 0) * Number(row.tc || 0);
+          evalp = row.tmo === "S" ? Number(row.val || 0) : Number(row.val || 0) * Number(row.tc || 0);
         } else {
-          evalp = row.tmo === "D"
-            ? Number(row.val || 0)
-            : Number(row.val || 0) / Number(row.tc || 1);
+          evalp = row.tmo === "D" ? Number(row.val || 0) : Number(row.val || 0) / Number(row.tc || 1);
         }
-
         etot = ecan * evalp;
-
         tcan += ecan;
         ttot += etot;
-        tval = tcan > 0 ? Math.round((ttot / tcan) * 100) / 100 : 0;
+        tval = tcan > 0 ? ttot / tcan : 0;
       } else {
         scan = Number(row.can || 0);
         sval = tval;
         stot = scan * sval;
-
         tcan -= scan;
         ttot -= stot;
       }
@@ -123,18 +103,16 @@ export default function KardexDashboard() {
         saldo_total: ttot,
       });
     });
-
     return rows;
   };
 
-  const fetchKardex = async (filters) => {
+  const fetchKardex = async (filtersObj) => {
     const token = localStorage.getItem("access_token");
-
     const params = {
-      anno: filters.anno,      // año
-      mes: filters.mes,       // mes o "%"
-      cod: filters.cod,       // código del producto
-      tmo: filters.moneda,    // "S" o "D"
+      anno: filtersObj.anno,
+      mes: filtersObj.mes,
+      cod: filtersObj.cod,
+      tmo: filtersObj.moneda,
     };
 
     const { data } = await api.get("logistica/kardex_base/", {
@@ -143,42 +121,86 @@ export default function KardexDashboard() {
     });
 
     const rows = calcularKardexDesdeMovimientos(data || [], params.tmo);
-    setKardexRows(rows);       // 👈 esto alimenta tu Table
+    setKardexRows(rows);
   };
 
-
-
-  // =========
-  // REPORTE
-  // =========
   const windowsOpen = (url, alto = 980, ancho = 600) => {
     const left = (screen.width - alto) / 2;
     const top = (screen.height - ancho) / 2;
-
     const specs = `resizable=yes,location=1,status=1,scrollbars=yes,width=${alto},height=${ancho},top=${top},left=${left}`;
-
     const popup = window.open(url, "reporte", specs);
     if (popup) popup.focus();
   };
 
-  const handleReport = (filters) => {
-    if (!filters) return;
+// Dentro de KardexDashboard.jsx
 
+const handleProcess = async () => {
+    setProcessingFilters(true);
+    try {
+      const response = await api.get("/logistica/kardex-base/", { params: filters });
+      // Asegurarse de que recibimos un array
+      setKardexRows(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.error("Error al procesar:", error);
+      setKardexRows([]); // Limpiar en caso de error
+    } finally {
+      setProcessingFilters(false);
+    }
+  };
+
+
+
+const handleReport = async (filtros) => {
+  try {
+    setReportLoading(true);
+    
+    // Mapear filtros del FilterCard a nombres del backend
     const params = {
-      anno: filters.anio || annoActual,
-      mes: filters.mes || "%",
-      estado: filters.estado || "%",
+      anno: filtros.anio || '%',
+      mes: filtros.mes || '%', 
+      cod: filtros.producto || '%',
+      moneda: filtros.moneda || 'S'
     };
 
-    const API_URL = import.meta.env.VITE_API_URL;
-    const query = new URLSearchParams(params).toString();
+    const response = await api.get('/cotizaciones/reportes/reporte_kardex_pdf/', {
+      params,
+      responseType: 'blob'
+    });
 
-    windowsOpen(
-      `${API_URL}/cotizaciones/reportes/reporte_cotizaciones_dashboard_html/?${query}`,
-      980,
-      600
-    );
-  };
+    // ✅ CAMBIO 1: Crear Blob
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+
+    // ✅ CAMBIO 2: Abrir en NUEVA VENTANA (en lugar de download)
+    window.open(url, '_blank', 'noopener,noreferrer');
+
+    // Liberar memoria después de 1 segundo
+    setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+
+  } catch (error) {
+    console.error('Error PDF:', error);
+    alert('Error generando PDF');
+  } finally {
+    setReportLoading(false);
+  }
+};
+
+// En tu render:
+<FilterCardKardex 
+  onProcess={handleProcess}
+  onReport={handleReport}  // ← Pasa tu handleReport
+  initialFilters={filters}
+/>
+
+// Estado para loading del PDF
+const [reportLoading, setReportLoading] = useState(false);
+
+
+  
+  const inventarioFinal = kardexRows.length ? kardexRows[kardexRows.length - 1] : null;
+
+  // GRID DEFINITION: 12 columnas balanceadas para que los spans funcionen
+  const baseRowClasses = "grid grid-cols-[110px_50px_1fr_repeat(9,minmax(85px,1fr))]";
 
   return (
     <motion.div
@@ -187,31 +209,22 @@ export default function KardexDashboard() {
       transition={{ duration: 0.5 }}
       className="min-h-screen w-full flex flex-col bg-gray-50 font-sans"
     >
-      <div className="flex-1 flex flex-col py-[clamp(8px,2vw,24px)] px-[clamp(8px,2vw,24px)]">
+      <div className="flex-1 flex flex-col py-4 px-4">
         {/* HEADER */}
         <motion.div
           style={{
-            boxShadow:
-              shadowOpacity.get() > 0
-                ? `0 2px 8px rgba(0,0,0,${shadowOpacity.get()})`
-                : "none",
+            boxShadow: shadowOpacity.get() > 0 ? `0 2px 8px rgba(0,0,0,${shadowOpacity.get()})` : "none",
             backdropFilter: `blur(${blurValue.get()}px)`,
           }}
-          className="sticky top-0 z-30 bg-white/90 border-b border-gray-200 rounded-2xl shadow-md px-[clamp(12px,2vw,20px)] py-[clamp(8px,1.2vw,12px)] mb-[clamp(10px,2vw,16px)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-[clamp(8px,1.5vw,12px)]"
+          className="sticky top-0 z-30 bg-white/90 border-b border-gray-200 rounded-2xl shadow-md px-5 py-3 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
         >
           <div className="flex-1 min-w-0">
-            <motion.h1
-              className="font-bold flex items-center gap-3 truncate"
-              style={{ fontSize: "clamp(1rem,2.2vw,2rem)" }}
-            >
-              <BriefcaseBusiness className="w-[clamp(20px,3vw,30px)] h-[clamp(20px,3vw,30px)] text-gray-900" />
+            <motion.h1 className="font-bold flex items-center gap-3 truncate text-2xl text-slate-900">
+              <BriefcaseBusiness className="w-8 h-8 text-blue-600" />
               Kardex
             </motion.h1>
-            <motion.p
-              className="mt-1 text-gray-600 italic truncate"
-              style={{ fontSize: "clamp(0.7rem,0.9vw,1rem)" }}
-            >
-              Gestión de <span className="font-semibold text-blue-600">kardex</span>.
+            <motion.p className="mt-1 text-gray-600 italic text-sm">
+              Gestión de <span className="font-semibold text-blue-600">kardex de inventario</span>.
             </motion.p>
           </div>
         </motion.div>
@@ -224,19 +237,18 @@ export default function KardexDashboard() {
             compact
             processing={processingFilters}
             onReport={handleReport}
-            onProcess={async (filters, event) => {
+            onProcess={async (filtersFromCard, event) => {
               if (event) event.preventDefault();
               setProcessingFilters(true);
               try {
                 const params = {
-                  anno: filters.anio || annoActual,
-                  mes: filters.mes || "%",
-                  moneda: filters.moneda || "S",     // "S" o "D"
-                  cod: filters.producto || "%",   // código de producto del modal
+                  anno: filtersFromCard.anio || annoActual,
+                  mes: filtersFromCard.mes || "%",
+                  moneda: filtersFromCard.moneda || "S",
+                  cod: filtersFromCard.producto || "%",
                 };
-
-                setCurrentFilters(params);
-                await fetchKardex(params);          // 👉 llama al endpoint nuevo
+                setFilters((prev) => ({ ...prev, ...params }));
+                await fetchKardex(params);
               } finally {
                 setProcessingFilters(false);
               }
@@ -244,270 +256,153 @@ export default function KardexDashboard() {
           />
         </div>
 
-        {/* TABLA KARDEX */}
-        <div className="hidden md:block w-full flex-1 overflow-auto relative rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
+        {/* TABLA KARDEX (DESKTOP) */}
+        <div className="hidden md:block w-full flex-1 overflow-auto relative rounded-xl border border-slate-300 bg-white shadow-sm">
           {processingFilters && (
-            <div className="absolute inset-0 z-30 bg-white/60 backdrop-blur-[2px] flex items-center justify-center transition-all">
+            <div className="absolute inset-0 z-30 bg-white/60 backdrop-blur-[2px] flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
-                <div className="relative">
-                  <Loader className="w-10 h-10 animate-spin text-teal-600" />
-                  <div className="absolute inset-0 rounded-full border-4 border-teal-100 opacity-20"></div>
-                </div>
-                <span className="text-[10px] font-[900] text-slate-500 uppercase tracking-[0.25em] animate-pulse">
-                  Procesando Kardex
-                </span>
+                <Loader className="w-10 h-10 animate-spin text-blue-600" />
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Procesando...</span>
               </div>
             </div>
           )}
 
-          {/* WRAPPER RESPONSIVE */}
-          <div className="w-full flex-1 flex flex-col gap-4">
-            {/* DESKTOP / TABLET ≥ md */}
-            <div className="hidden md:block w-full h-full overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
-              <div className="w-full h-full flex flex-col">
-                {/* HEADERS AGRUPADOS */}
-                <div className="border-b border-slate-200 bg-slate-50 px-4 lg:px-6 py-2 shrink-0 overflow-x-auto">
-                  <div className="min-w-[900px]">
-                    {/* Fila Ingreso / Salida / Saldo */}
-                    <div className="grid grid-cols-[130px,80px,1.6fr,repeat(9,minmax(80px,1fr))] text-[10px] font-[950] uppercase tracking-[0.18em] text-slate-700">
-                      <div className="col-span-3" />
-                      <div className="col-span-3 text-center">Ingreso</div>
-                      <div className="col-span-3 text-center">Salida</div>
-                      <div className="col-span-3 text-center">Saldo Final</div>
-                    </div>
-
-                    {/* Sub‑encabezados */}
-                    <div className="grid grid-cols-[130px,80px,1.6fr,repeat(9,minmax(80px,1fr))] text-[10px] font-semibold text-slate-600 mt-1">
-                      <div className="px-2 py-1">Fecha</div>
-                      <div className="px-2 py-1">Tipo</div>
-                      <div className="px-2 py-1">Referencia</div>
-
-                      <div className="px-2 py-1 text-center">Cant.</div>
-                      <div className="px-2 py-1 text-right">Precio</div>
-                      <div className="px-2 py-1 text-right">Total</div>
-
-                      <div className="px-2 py-1 text-center">Cant.</div>
-                      <div className="px-2 py-1 text-right">Precio</div>
-                      <div className="px-2 py-1 text-right">Total</div>
-
-                      <div className="px-2 py-1 text-center">Cant.</div>
-                      <div className="px-2 py-1 text-right">Precio</div>
-                      <div className="px-2 py-1 text-right">Total</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* CUERPO: SCROLL VERTICAL + HORIZONTAL */}
-                <div className="flex-1 overflow-auto">
-                  <div className="min-w-[900px]">
-                    <Table
-                      headers={[]}
-                      data={kardexRows}
-                      onRowClick={(row) => {
-                        setKardexSeleccionado(row);
-                        setKardexDetalleOpen(true);
-                      }}
-                      renderRow={(row) => {
-                        const ingCant = row.ingreso_cant ?? 0;
-                        const ingPrec = row.ingreso_precio ?? 0;
-                        const ingTot = row.ingreso_total ?? 0;
-                        const salCant = row.salida_cant ?? 0;
-                        const salPrec = row.salida_precio ?? 0;
-                        const salTot = row.salida_total ?? 0;
-                        const saldCant = row.saldo_cant ?? 0;
-                        const saldPrec = row.saldo_precio ?? 0;
-                        const saldTot = row.saldo_total ?? 0;
-
-                        return [
-                          <span className="text-[11px] font-semibold text-slate-800 tabular-nums text-left leading-none">
-                            {row.fecha}
-                          </span>,
-
-                          <span className="text-[11px] font-semibold text-slate-800 text-left tracking-tight uppercase leading-none">
-                            {row.tipo}
-                          </span>,
-
-                          <span className="text-[11px] font-medium text-slate-700 text-left tracking-tight leading-none">
-                            {row.referencia}
-                          </span>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-bold text-slate-800 tabular-nums">
-                              {ingCant}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-semibold text-slate-700 tabular-nums">
-                              {ingPrec.toFixed(4)}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-bold text-slate-800 tabular-nums">
-                              {ingTot.toFixed(2)}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-bold text-slate-800 tabular-nums">
-                              {salCant}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-semibold text-slate-700 tabular-nums">
-                              {salPrec.toFixed(4)}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-bold text-slate-800 tabular-nums">
-                              {salTot.toFixed(2)}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-bold text-slate-800 tabular-nums">
-                              {saldCant}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-semibold text-slate-700 tabular-nums">
-                              {saldPrec.toFixed(4)}
-                            </span>
-                          </div>,
-
-                          <div className="text-right py-1">
-                            <span className="text-[11px] font-black text-amber-500 tabular-nums">
-                              {saldTot.toFixed(2)}
-                            </span>
-                          </div>,
-                        ];
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+          <div className="min-w-[1100px] flex flex-col">
+            {/* ENCABEZADO NIVEL 1: GRUPOS */}
+            <div className={`${baseRowClasses} bg-slate-100 border-b border-slate-300 text-[10px] font-bold uppercase tracking-wider text-slate-700`}>
+              <div className="col-span-3 px-3 py-2 border-r border-slate-200">Datos del Movimiento</div>
+              <div className="col-span-3 px-3 py-2 text-center border-r border-slate-200 bg-blue-50/50">Ingreso</div>
+              <div className="col-span-3 px-3 py-2 text-center border-r border-slate-200 bg-orange-50/50">Salida</div>
+              <div className="col-span-3 px-3 py-2 text-center bg-green-50/50">Saldo Final</div>
             </div>
 
-            {/* MOBILE < md: CARDS */}
-            <div className="md:hidden flex flex-col gap-3">
-              {kardexRows.map((row, idx) => (
-                <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm"
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-[11px] font-semibold text-slate-800">
-                      {row.fecha} · {row.tipo}
-                    </span>
-                    <span className="text-[11px] font-black text-amber-500 tabular-nums">
-                      {(row.saldo_total ?? 0).toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 mb-2">
-                    {row.referencia}
-                  </p>
+            {/* ENCABEZADO NIVEL 2: COLUMNAS */}
+            <div className={`${baseRowClasses} bg-slate-50 border-b border-slate-300 text-[10px] font-semibold text-slate-600`}>
+              <div className="px-3 py-2 border-r border-slate-200">Fecha</div>
+              <div className="px-3 py-2 border-r border-slate-200">Tipo</div>
+              <div className="px-3 py-2 border-r border-slate-200">Referencia</div>
+              
+              <div className="px-2 py-2 text-center border-r border-slate-200 bg-blue-50/30">Cant.</div>
+              <div className="px-2 py-2 text-right border-r border-slate-200 bg-blue-50/30">Precio</div>
+              <div className="px-2 py-2 text-right border-r border-slate-200 bg-blue-50/30">Total</div>
 
-                  <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-600">
-                    <div>
-                      <p className="font-semibold uppercase text-slate-500">
-                        Ingreso
-                      </p>
-                      <p>
-                        Cant:{" "}
-                        <span className="font-bold">
-                          {row.ingreso_cant ?? 0}
-                        </span>
-                      </p>
-                      <p>
-                        Tot:{" "}
-                        <span className="font-bold tabular-nums">
-                          {(row.ingreso_total ?? 0).toFixed(2)}
-                        </span>
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-semibold uppercase text-slate-500">
-                        Salida
-                      </p>
-                      <p>
-                        Cant:{" "}
-                        <span className="font-bold">
-                          {row.salida_cant ?? 0}
-                        </span>
-                      </p>
-                      <p>
-                        Tot:{" "}
-                        <span className="font-bold tabular-nums">
-                          {(row.salida_total ?? 0).toFixed(2)}
-                        </span>
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-semibold uppercase text-slate-500">
-                        Saldo
-                      </p>
-                      <p>
-                        Cant:{" "}
-                        <span className="font-bold">
-                          {row.saldo_cant ?? 0}
-                        </span>
-                      </p>
-                      <p>
-                        Tot:{" "}
-                        <span className="font-bold tabular-nums text-amber-500">
-                          {(row.saldo_total ?? 0).toFixed(2)}
-                        </span>
-                      </p>
-                    </div>
+              <div className="px-2 py-2 text-center border-r border-slate-200 bg-orange-50/30">Cant.</div>
+              <div className="px-2 py-2 text-right border-r border-slate-200 bg-orange-50/30">Precio</div>
+              <div className="px-2 py-2 text-right border-r border-slate-200 bg-orange-50/30">Total</div>
+
+              <div className="px-2 py-2 text-center border-r border-slate-200 bg-green-50/30">Cant.</div>
+              <div className="px-2 py-2 text-right border-r border-slate-200 bg-green-50/30">Precio</div>
+              <div className="px-2 py-2 text-right bg-green-50/30">Total</div>
+            </div>
+
+            {/* CUERPO DE DATOS */}
+            <div className="overflow-y-auto">
+              {kardexRows.map((row, idx) => (
+                <div 
+                  key={idx} 
+                  className={`${baseRowClasses} hover:bg-blue-50/40 border-b border-slate-200 transition-colors cursor-pointer group`}
+                  onClick={() => { setKardexSeleccionado(row); setKardexDetalleOpen(true); }}
+                >
+                  <div className="px-3 py-2 text-[11px] tabular-nums text-slate-700 border-r border-slate-100">{row.fecha}</div>
+                  <div className="px-3 py-2 text-[11px] font-bold text-center border-r border-slate-100">
+                    <span className={row.tipo === 'E' ? 'text-blue-600' : 'text-orange-600'}>{row.tipo}</span>
                   </div>
-                </motion.div>
+                  <div className="px-3 py-2 text-[11px] text-slate-600 truncate border-r border-slate-100" title={row.referencia}>
+                    {row.referencia}
+                  </div>
+
+                  {/* Ingreso */}
+                  <div className="px-2 py-2 text-center text-[11px] tabular-nums font-medium border-r border-slate-100">{row.ingreso_cant || "-"}</div>
+                  <div className="px-2 py-2 text-right text-[11px] tabular-nums text-slate-500 border-r border-slate-100">{row.ingreso_precio > 0 ? row.ingreso_precio.toFixed(4) : "-"}</div>
+                  <div className="px-2 py-2 text-right text-[11px] tabular-nums font-semibold text-slate-700 border-r border-slate-100">{row.ingreso_total > 0 ? row.ingreso_total.toFixed(2) : "-"}</div>
+
+                  {/* Salida */}
+                  <div className="px-2 py-2 text-center text-[11px] tabular-nums font-medium border-r border-slate-100">{row.salida_cant || "-"}</div>
+                  <div className="px-2 py-2 text-right text-[11px] tabular-nums text-slate-500 border-r border-slate-100">{row.salida_precio > 0 ? row.salida_precio.toFixed(4) : "-"}</div>
+                  <div className="px-2 py-2 text-right text-[11px] tabular-nums font-semibold text-slate-700 border-r border-slate-100">{row.salida_total > 0 ? row.salida_total.toFixed(2) : "-"}</div>
+
+                  {/* Saldo */}
+                  <div className="px-2 py-2 text-center text-[11px] tabular-nums font-bold text-slate-800 border-r border-slate-100 bg-slate-50/30">{row.saldo_cant}</div>
+                  <div className="px-2 py-2 text-right text-[11px] tabular-nums text-slate-600 border-r border-slate-100 bg-slate-50/30">{row.saldo_precio.toFixed(4)}</div>
+                  <div className="px-2 py-2 text-right text-[11px] tabular-nums font-black text-amber-600 bg-slate-50/30">{row.saldo_total.toFixed(2)}</div>
+                </div>
               ))}
             </div>
+
+            {/* PIE: INVENTARIO FINAL */}
+            {inventarioFinal && (
+              <div className={`${baseRowClasses} bg-slate-800 text-white font-bold border-t-2 border-slate-900 sticky bottom-0`}>
+                <div className="col-span-3 px-4 py-3 text-xs uppercase tracking-widest">Inventario Final:</div>
+                <div className="col-span-3 border-r border-slate-700" /> {/* Espacio Ingreso */}
+                <div className="col-span-3 border-r border-slate-700" /> {/* Espacio Salida */}
+                
+                {/* Saldo Final en el pie */}
+                <div className="px-2 py-3 text-center text-xs tabular-nums">{inventarioFinal.saldo_cant}</div>
+                <div className="px-2 py-3 text-right text-xs tabular-nums text-slate-300">{inventarioFinal.saldo_precio.toFixed(4)}</div>
+                <div className="px-2 py-3 text-right text-xs tabular-nums text-amber-400">{inventarioFinal.saldo_total.toFixed(2)}</div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* LEYENDA DE ESTADOS (si la sigues usando) */}
-        <div
-          className="
-          flex flex-wrap 
-          justify-center md:justify-start 
-          items-center 
-          gap-3 md:gap-4 
-          p-3 
-          mt-4 
-          rounded-xl 
-          border border-gray-200 
-          bg-white 
-          shadow-sm 
-          w-full
-        "
-        >
-          {[
-            { label: "Abierto", color: ESTADO_STATE_COLORS["0"] },
-            { label: "Cerrado", color: ESTADO_STATE_COLORS["1"] },
-          ].map(({ label, color }) => (
-            <div
-              key={label}
-              className="flex items-center gap-2 min-w-[120px] md:min-w-[140px]"
+        {/* MOBILE < md: CARDS */}
+        <div className="md:hidden flex flex-col gap-3">
+          {kardexRows.map((row, idx) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm"
             >
-              <span
-                className="w-3 h-3 rounded-full border border-gray-300"
-                style={{ backgroundColor: color }}
-              ></span>
-              <span className="text-gray-600 truncate text-xs md:text-[clamp(0.65rem, 1vw, 1rem)]">
-                {label}
-              </span>
-            </div>
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${row.tipo === 'E' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                    {row.tipo === 'E' ? 'INGRESO' : 'SALIDA'}
+                  </span>
+                  <p className="text-xs font-bold text-slate-800 mt-1">{row.fecha}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500 uppercase font-bold">Saldo Total</p>
+                  <p className="text-sm font-black text-amber-500">{(row.saldo_total ?? 0).toFixed(2)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 mb-3 line-clamp-2 italic">"{row.referencia}"</p>
+
+              <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100">
+                <div className="text-center">
+                  <p className="text-[9px] uppercase text-slate-400 font-bold">Cant.</p>
+                  <p className="text-xs font-bold text-slate-700">{row.tipo === 'E' ? row.ingreso_cant : row.salida_cant}</p>
+                </div>
+                <div className="text-center border-x border-slate-100">
+                  <p className="text-[9px] uppercase text-slate-400 font-bold">Precio</p>
+                  <p className="text-xs font-bold text-slate-700">{(row.tipo === 'E' ? row.ingreso_precio : row.salida_precio).toFixed(2)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[9px] uppercase text-slate-400 font-bold">Stock</p>
+                  <p className="text-xs font-bold text-blue-600">{row.saldo_cant}</p>
+                </div>
+              </div>
+            </motion.div>
           ))}
         </div>
 
-        {/* MODAL NUEVA LOGÍSTICA (si lo sigues usando) */}
+        {/* LEYENDA */}
+        <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 p-4 mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 w-full">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+            <span className="text-slate-600 text-xs font-medium">Ingresos</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+            <span className="text-slate-600 text-xs font-medium">Salidas</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+            <span className="text-slate-600 text-xs font-medium">Saldo Valorizado</span>
+          </div>
+        </div>
+
+        {/* MODALES */}
         <NuevaLogisticaModalSal
           open={openNueva}
           onClose={() => setOpenNueva(false)}

@@ -408,6 +408,122 @@ def logistica_kardex_base_view(request):
 
 #========================================================================================
 
+
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from weasyprint import HTML
+from io import BytesIO
+import os
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def reporte_kardex_pdf(request):
+    try:
+        # 1. FILTROS (igual que logistica_kardex_base_view)
+        anno = request.GET.get("anno", "%")
+        mes = request.GET.get("mes", "%")
+        cod = request.GET.get("cod", "%")
+        moneda = request.GET.get("moneda", "S")  # ← S o D
+
+        # 2. MISMA LÓGICA que kardex_base
+        cab_qs = LogisticaDashboard.objects.all()
+        
+        if anno != "%":
+            cab_qs = cab_qs.filter(fec__year=anno)
+        if mes != "%":
+            cab_qs = cab_qs.filter(fec__month__lte=mes)
+
+        num_regs = list(cab_qs.values_list('num_reg', flat=True))
+        if not num_regs:
+            return HttpResponse("Sin datos", status=404)
+
+        det_qs = LogisticaDashboardDetalle.objects.filter(num_reg__in=num_regs)
+        if cod != "%":
+            det_qs = det_qs.filter(cod__iexact=cod)
+
+        cab_map = {c.num_reg: c for c in cab_qs}
+        detalles = sorted(list(det_qs), key=lambda d: cab_map.get(d.num_reg, {}).fec)
+        
+        # 3. CALCULAR MONTOS por MONEDA (🚀 NUEVO)
+        movimientos = []
+        saldo_cant = 0
+        saldo_precio = 0
+        
+        for det in detalles:
+            cab = cab_map.get(det.num_reg)
+            if not cab:
+                continue
+
+            can = float(det.can or 0)
+            val = float(det.val or 0)  # precio unitario
+            tot = float(det.tot or 0)  # total
+            
+            tc = float(cab.tc or 1)  # tipo de cambio
+
+            # ✅ CONVERTIR según MONEDA
+            if moneda == "D" and cab.tmo == "S":  # Soles → Dólares
+                val_dolar = val / tc
+                tot_dolar = tot / tc
+            elif moneda == "S" and cab.tmo == "D":  # Dólares → Soles
+                val_dolar = val * tc
+                tot_dolar = tot * tc
+            else:  # Misma moneda
+                val_dolar = val
+                tot_dolar = tot
+
+            # Actualizar saldos acumulativos
+            if det.ope == 'E':  # Entrada
+                saldo_cant += can
+                saldo_precio = val_dolar  # Precio promedio simplificado
+            else:  # Salida
+                saldo_cant -= can
+
+            saldo_total = saldo_cant * saldo_precio
+
+            movimiento = {
+                'fecha': cab.fec.strftime('%d/%m/%Y'),
+                'tipo': 'E' if det.ope == 'E' else 'S',
+                'referencia': cab.dor or '',
+                
+                # Ingreso
+                'ingreso_cant': can if det.ope == 'E' else 0,
+                'ingreso_precio': val_dolar if det.ope == 'E' else 0,
+                'ingreso_total': tot_dolar if det.ope == 'E' else 0,
+                
+                # Salida  
+                'salida_cant': can if det.ope == 'S' else 0,
+                'salida_precio': val_dolar if det.ope == 'S' else 0,
+                'salida_total': tot_dolar if det.ope == 'S' else 0,
+                
+                # Saldos ACUMULATIVOS
+                'saldo_cant': saldo_cant,
+                'saldo_precio': saldo_precio,
+                'saldo_total': saldo_total,
+            }
+            movimientos.append(movimiento)
+
+        # 4. CONTEXTO para template
+        context = {
+            "rows": movimientos,
+            "titulo": f"KARDEX - {cod}",
+            "moneda": "S/ " if moneda == "S" else "$ ",
+        }
+
+        # 5. PDF
+        html_string = render_to_string("reportes/reporte_kardex_dashboard.html", context)
+        html = HTML(string=html_string)
+        pdf_buffer = BytesIO()
+        html.write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+
+        response = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="kardex_{cod}_{moneda}.pdf"'
+        return response
+
+    except Exception as e:
+        print(f"Error PDF: {e}")
+        return HttpResponse("Error generando PDF", status=500)
+
 #=========================#
 # APROBACION COTIZACIONES #
 #=========================#
@@ -3453,6 +3569,7 @@ def reporte_suministros_html(request, num_reg):
         context
     )
 
+
 @csrf_exempt
 def reporte_suministros_excel(request, num_reg):
     suministros = CotiSuministros.objects.filter(num_reg=num_reg).order_by("cog", "nig", "num")
@@ -4172,3 +4289,7 @@ def html_to_text(html):
 
     text = soup.get_text()
     return text.strip()
+
+
+
+    

@@ -5,7 +5,6 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from . import views
 from logistica_api.views_frontend import FrontendAppView
-
 # Registramos ViewSets en el router
 router = DefaultRouter()
 # router.register(r'cotizaciones', views.CotizacionViewSet, basename='cotizaciones')
@@ -54,6 +53,9 @@ urlpatterns = [
         views.logistica_kardex_base_view,
         name='logistica_kardex_base_view'
     ),
+
+    path('logistica/kardex-base/', views.logistica_kardex_base_view, name='kardex_base_data'),
+    path('cotizaciones/reportes/reporte_kardex_pdf/', views.reporte_kardex_pdf, name='reporte_kardex_pdf'),
 
     # BUSQUEDA
     path('clientes/<str:empresa>/encargados/', views.buscar_encargados_por_empresa, name='buscar_encargados_por_empresa'),

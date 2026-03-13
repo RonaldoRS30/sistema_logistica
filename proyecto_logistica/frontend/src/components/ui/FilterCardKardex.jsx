@@ -218,53 +218,34 @@ const [filters, setFilters] = useState({
      ========================================================== */
 const handleProcess = async (e) => {
   try {
-    console.log("[handleProcess] start");
-
-    if (e) {
-      console.log("[handleProcess] preventDefault()");
-      e.preventDefault();
-    }
-
-    if (!onProcess) {
-      console.warn("[handleProcess] onProcess no definido");
-      return;
-    }
+    if (e) e.preventDefault();
+    if (!onProcess) return;
 
     setProcessing(true);
-    console.log("[handleProcess] processing = true");
 
-    // Clonar filtros
-    const filtros = { ...filters };
-    console.log("[handleProcess] filtros iniciales:", filtros);
-
-    // Filtro general → campo / valor
-    if (filtros.generalCampo && filtros.generalValor) {
-      filtros.campo = filtros.generalCampo;
-      filtros.valor = filtros.generalValor.trim();
-      console.log("[handleProcess] filtros con campo/valor:", {
-        campo: filtros.campo,
-        valor: filtros.valor,
-      });
-    } else {
-      console.log("[handleProcess] sin filtro general");
-    }
-
-    delete filtros.generalCampo;
-    delete filtros.generalValor;
-
-    console.log("[handleProcess] filtros finales enviados:", filtros);
-
-    const resp = await onProcess(filtros);
-    console.log("[handleProcess] onProcess OK, respuesta:", resp);
+    const filtros = getNormalizedFilters();
+    await onProcess(filtros);
   } catch (err) {
-    console.error("[handleProcess] ERROR:", err);
     setError("Error al aplicar filtros.");
   } finally {
     setProcessing(false);
-    console.log("[handleProcess] processing = false (finally)");
   }
 };
 
+
+const getNormalizedFilters = () => {
+  const filtros = { ...filters };
+
+  if (filtros.generalCampo && filtros.generalValor) {
+    filtros.campo = filtros.generalCampo;
+    filtros.valor = filtros.generalValor.trim();
+  }
+
+  delete filtros.generalCampo;
+  delete filtros.generalValor;
+
+  return filtros;
+};
 
   useEffect(() => {
     if (initialFilters && Object.keys(initialFilters).length) {
@@ -410,14 +391,21 @@ const handleProcess = async (e) => {
                 <Trash2 className="w-4 h-4" /> Limpiar
               </Button>
 
-              <Button
-                onClick={() => onReport?.(filters)}
-                size="lg"
-                variant="ghost"
-                className="text-sm font-black uppercase tracking-widest text-green-700 hover:bg-green-100 border border-transparent hover:border-green-200 rounded-xl h-9 px-8 transition-all"
-              >
-                <FileSliders className="w-4 h-4" /> Reporte
-              </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (!onReport) return;
+                    const filtros = getNormalizedFilters();
+                    onReport(filtros); // ← Pasa los mismos filtros que "Procesar"
+                  }}
+                  size="lg"
+                  variant="ghost"
+                  className="text-sm font-black uppercase tracking-widest text-orange-700 hover:bg-orange-100 border border-transparent hover:border-orange-200 rounded-xl h-9 px-8 transition-all"
+                >
+                  <FileSliders className="w-4 h-4" /> Reporte PDF
+                </Button>
+
+
             </div>
           </motion.div>
         )}
