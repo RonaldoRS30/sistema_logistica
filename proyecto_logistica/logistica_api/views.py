@@ -1,5 +1,5 @@
 
-# ─── Librerías estándar ─────────────────────────────
+# â”€â”€â”€ LibrerÃ­as estÃ¡ndar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import os
 import io
 import re
@@ -13,13 +13,13 @@ from decimal import Decimal, InvalidOperation
 from html import unescape
 from openpyxl import Workbook
 
-# ─── Librerías de terceros ──────────────────────────
+# â”€â”€â”€ LibrerÃ­as de terceros â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from reportlab.pdfgen import canvas
 
 from . import serializers
 logger = logging.getLogger(__name__)
 
-# ─── Django core ────────────────────────────────────
+# â”€â”€â”€ Django core â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from django.conf import settings
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -38,7 +38,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-# ─── Django REST Framework ──────────────────────────
+# â”€â”€â”€ Django REST Framework â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from rest_framework.decorators import api_view, parser_classes, permission_classes, action, authentication_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
@@ -84,7 +84,7 @@ from django.db.models import Q
 CACHE_LIST_KEY = "liquidacion_list"
 CACHE_DETAIL_PREFIX = "liquidacion_detail_"
 
-# ─── Modelos y Serializers propios ─────────────────
+# ——— Modelos y Serializers propios —————————————————————————————
 from django.conf import settings
 from datetime import date, datetime, timedelta
 from django.utils.timezone import now
@@ -99,7 +99,6 @@ from .models import (
     vc_tab_clientes,
     vc_tab_estado,
     vc_mov_cotizaciones,
-    seg_usuario,
     cont_cias,
     vc_tab_clientes_d,
     CotiSuministros,
@@ -115,7 +114,11 @@ from .models import (
     vc_tab_ceyesa,
     vc_tab_hoffman,
     alm_articulos,
-    )
+    sis_alm_tab_almacen,
+    sis_alm_tab_grupo,
+    sis_alm_tab_articulos,
+    sis_alm_tab_ccosto,
+)
 from .serializers import (
     DashboardCotizacionTablaSerializer,
     AreasSerializer,
@@ -140,7 +143,15 @@ from .serializers import (
     CeyesaSerializer,
     HoffmanSerializer,
     AlmArticulosSerializer,
+    AlmacenSerializer,
+    GrupoAnaliticoSerializer,
+    ArticuloSerializer,
+    AlmTabUmedSerializer,
+    CcostoSerializer,
 )
+from django.db.models.functions import Cast
+from django.db.models import CharField
+
 
 PLANTILLAS_DIR = os.path.join(os.path.dirname(__file__), "plantillas")
 
@@ -265,8 +276,8 @@ def usuario_actual(request):
         )
 
     try:
-        usuario = seg_usuario.objects.using("default").get(usuario_usu=usuario_usu)
-    except seg_usuario.DoesNotExist:
+        usuario = SegUsuario.objects.using("default").get(usuario_usu=usuario_usu)
+    except SegUsuario.DoesNotExist:
         return Response(
             {"error": "Usuario no encontrado en la base de datos."},
             status=status.HTTP_404_NOT_FOUND
@@ -281,7 +292,7 @@ def usuario_actual(request):
 def usuarios_activos(request):
     q = request.GET.get("q", "").strip()
 
-    usuarios = seg_usuario.objects.using("default").filter(activo=1)
+    usuarios = SegUsuario.objects.using("default").filter(activo=1)
 
     if q:
         usuarios = usuarios.filter(
@@ -419,6 +430,7 @@ import os
 @permission_classes([IsAuthenticated])
 def reporte_kardex_pdf(request):
     try:
+        from django.templatetags.static import static
         # 1. FILTROS (igual que logistica_kardex_base_view)
         anno = request.GET.get("anno", "%")
         mes = request.GET.get("mes", "%")
@@ -507,11 +519,12 @@ def reporte_kardex_pdf(request):
             "rows": movimientos,
             "titulo": f"KARDEX - {cod}",
             "moneda": "S/ " if moneda == "S" else "$ ",
+            "logo_url": request.build_absolute_uri(static("img/logo.png")),
         }
 
         # 5. PDF
         html_string = render_to_string("reportes/reporte_kardex_dashboard.html", context)
-        html = HTML(string=html_string)
+        html = HTML(string=html_string, base_url=request.build_absolute_uri("/"))
         pdf_buffer = BytesIO()
         html.write_pdf(pdf_buffer)
         pdf_buffer.seek(0)
@@ -527,7 +540,7 @@ def reporte_kardex_pdf(request):
 #=========================#
 # APROBACION COTIZACIONES #
 #=========================#
-# ─── Dashboard Cotizaciones (versión moderna) ─────────────────────
+# ——— Dashboard Cotizaciones (versión moderna) —————————————————————
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def cotizaciones_dashboard_view(request):
@@ -545,7 +558,7 @@ def cotizaciones_dashboard_view(request):
         # ============================================================
         # 1) Parámetros principales
         # ============================================================
-        anno = request.GET.get("anno", date.today().year)
+        anno = request.GET.get("anno", "%")
         mes = request.GET.get("mes", "%")
 
         cliente = request.GET.get("cliente", "%")
@@ -578,9 +591,10 @@ def cotizaciones_dashboard_view(request):
         # ============================================================
         # 2) Query base
         # ============================================================
-        qs = DashboardCotizacion.objects.filter(
-            fecha__year=anno
-        )
+        qs = DashboardCotizacion.objects.all()
+        
+        if anno != "%":
+            qs = qs.filter(fecha__year=anno)
 
         if mes != "%":
             qs = qs.filter(fecha__month=mes)
@@ -671,18 +685,23 @@ def cotizaciones_dashboard_view(request):
                 elif c.tmone == "D":
                     monto_total_dolares += float(c.tot_c or 0)
             else:
-                # si no hay tmone definido, asumimos S/ por defecto
                 monto_total_soles += float(c.tot_c or 0)
 
             # ===== Conteo por mes =====
             if c.fecha:
-                idx = c.fecha.month - 1
-                meses[idx] += 1
-                if c.fecha.month == hoy.month:
-                    este_mes += 1
+                fec_obj = c.fecha
+                if isinstance(fec_obj, str):
+                    from django.utils.dateparse import parse_date
+                    fec_obj = parse_date(fec_obj)
+                
+                if fec_obj and hasattr(fec_obj, 'month'):
+                    idx = fec_obj.month - 1
+                    meses[idx] += 1
+                    if fec_obj.month == hoy.month:
+                        este_mes += 1
 
             # ===== Stats por cliente =====
-            codigo = c.cliente_codigo  # código del cliente
+            codigo = c.cliente_codigo  # cÃ³digo del cliente
             nombre = c.cliente_nombre or "-"
             
             if codigo not in clientes_stats:
@@ -720,7 +739,7 @@ def cotizaciones_dashboard_view(request):
             "promedioDolares": round(monto_total_dolares / total, 2) if total else 0,
             "estados": estado_map,
             "porMes": meses,
-            "clientes": clientes_list,  # ✅ aquí agregamos los stats de clientes
+            "clientes": clientes_list,  # âœ… aquÃ­ agregamos los stats de clientes
         }
 
         # ============================================================
@@ -749,7 +768,8 @@ def cotizaciones_dashboard_view(request):
         print(traceback.format_exc())
         return Response({"error": "Error interno en el servidor."}, status=500)
 
-
+from django.db.models.functions import Cast
+from django.db.models import CharField
 #=========================#
 # LOGISTICA #
 #=========================#
@@ -757,23 +777,23 @@ def cotizaciones_dashboard_view(request):
 @permission_classes([IsAuthenticated])
 def logistica_dashboard_view(request):
     """
-    Dashboard inicial de Logística
-    Versión base: filtros + métricas + tabla
+    Dashboard inicial de LogÃ­stica
+    VersiÃ³n base: filtros + mÃ©tricas + tabla
     """
 
     try:
         from datetime import date
 
         # ======================================================
-        # 1) Parámetros
+        # 1) ParÃ¡metros
         # ======================================================
-        anno = request.GET.get("anno", date.today().year)
+        anno = request.GET.get("anno", "%")
         mes = request.GET.get("mes", "%")
         proveedor = request.GET.get("proveedor", "%")
         tipo = request.GET.get("tipo", "%")
         estado = request.GET.get("estado", "%")
         almacen = request.GET.get("almacen", "%")
-        tipo_cambio = request.GET.get("tipo_cambio", "%")  # valor por defecto si no se envía
+        tipo_cambio = request.GET.get("tipo_cambio", "%")  # valor por defecto si no se envÃ­a
         moneda = request.GET.get("moneda", "%") 
         numero_doc = request.GET.get("numero_doc", "%") 
         responsable = request.GET.get("responsable", "%") 
@@ -784,15 +804,29 @@ def logistica_dashboard_view(request):
         tipo_movimiento = request.GET.get("tipo_movimiento", "%") 
         orden_compra = request.GET.get("orden_compra", "%")
         razon_social = request.GET.get("razon_social", "%")
+        operacion = request.GET.get("operacion", "%")
+        general = request.GET.get("general", "").strip()
+        campo = request.GET.get("campo", "").strip()
+        valor = request.GET.get("valor", "").strip()
+        # ======================================================
         # ======================================================
         # 2) Query base
         # ======================================================
-        qs = LogisticaDashboard.objects.filter(
-            fec__year=anno
-        )
+        qs = LogisticaDashboard.objects.all()
 
+        # Filtra por columnas dedicadas anno/mes (más eficiente que extraer de fec)
+        if anno != "%" and anno:
+            qs = qs.filter(anno=anno)
+
+        qs = qs.annotate(
+            sol_str=Cast('sol', CharField()),
+            dol_str=Cast('dol', CharField())
+        )
         if razon_social != "%":
-            qs = qs.filter(dor =razon_social)
+            qs = qs.filter(dor=razon_social)
+
+        if operacion != "%":
+            qs = qs.filter(ope=operacion)   # E = Entradas, S = Salidas
 
         if orden_compra != "%":
             qs = qs.filter(oco=orden_compra)
@@ -803,7 +837,6 @@ def logistica_dashboard_view(request):
         if referencia != "%":
             qs = qs.filter(mov=referencia)
 
-        
         if nro_guia != "%":
             qs = qs.filter(ngu=nro_guia)
 
@@ -814,23 +847,22 @@ def logistica_dashboard_view(request):
             qs = qs.filter(cod=codigo)
 
         if responsable != "%":
-              qs = qs.filter(nom1=responsable)
+            qs = qs.filter(nom1=responsable)
 
         if numero_doc != "%":
-              qs = qs.filter(nfa=numero_doc)
+            qs = qs.filter(nfa=numero_doc)
 
         if moneda != "%":
-              qs = qs.filter(tmo=moneda)
+            qs = qs.filter(tmo=moneda)
 
         if tipo_cambio != "%":
-              qs = qs.filter(tc=tipo_cambio)
+            qs = qs.filter(tc=tipo_cambio)
 
         if almacen != "%":
-              qs = qs.filter(alm=almacen)
-              print("ALMACEN:", almacen)
-              print(qs.query)
-        if mes != "%":
-            qs = qs.filter(fec__month=mes)
+            qs = qs.filter(alm=almacen)
+
+        if mes != "%" and mes:
+            qs = qs.filter(mes=mes.zfill(2))   # normalizar: "3" -> "03"
 
         if proveedor != "%":
             qs = qs.filter(cor=proveedor)
@@ -841,6 +873,31 @@ def logistica_dashboard_view(request):
             elif estado == "ACTIVO":
                 qs = qs.exclude(anulado="S")
 
+        
+        if general:
+            qs = qs.filter(
+                Q(num_reg__icontains=general) |
+                Q(fec__icontains=general) |
+                Q(oco__icontains=general) |
+                Q(nfa__icontains=general) |
+                Q(ngu__icontains=general) |
+                Q(cor__icontains=general) |
+                Q(dor__icontains=general) |
+                Q(tip__icontains=general) |
+                Q(alm__icontains=general) |
+                Q(tmo__icontains=general) |
+                Q(sol_str__icontains=general) |
+               Q(dol_str__icontains=general) |
+                Q(reg__icontains=general) |
+                Q(obs__icontains=general) |
+                Q(ope__icontains=general) |
+                Q(nom1__icontains=general) |
+                Q(nom2__icontains=general) |
+                Q(est__icontains=general) |
+                Q(mov__icontains=general)
+            )
+
+            
         # ======================================================
         # 3) Dashboard Stats
         # ======================================================
@@ -859,10 +916,16 @@ def logistica_dashboard_view(request):
 
             # Conteo por mes
             if r.fec:
-                idx = r.fec.month - 1
-                meses[idx] += 1
-                if r.fec.month == hoy.month:
-                    este_mes += 1
+                fec_obj = r.fec
+                if isinstance(fec_obj, str):
+                    from django.utils.dateparse import parse_date
+                    fec_obj = parse_date(fec_obj)
+                
+                if fec_obj and hasattr(fec_obj, 'month'):
+                    idx = fec_obj.month - 1
+                    meses[idx] += 1
+                    if fec_obj.month == hoy.month:
+                        este_mes += 1
 
             # Montos
             total_soles += float(r.sol or 0)
@@ -934,7 +997,14 @@ def logistica_dashboard_view(request):
         return Response({
             "dashboard": dashboard_data,
             "tabla": tabla,
-            "anno": anno
+            "anno": anno,
+            "mes": mes,
+            "almacen":almacen,
+            "referencia":referencia,
+            "general": general,
+             "general": general,
+             "operacion":operacion,
+
         })
 
     except Exception:
@@ -946,24 +1016,24 @@ def logistica_dashboard_view(request):
 @permission_classes([IsAuthenticated])
 def logistica_modal_view(request, num_reg):
     """
-    Retorna los detalles completos de un movimiento logístico
+    Retorna los detalles completos de un movimiento logÃ­stico
     usando num_reg como clave principal.
     """
 
     try:
         # ==========================
-        # 1️⃣ CABECERA
+        # 1ï¸âƒ£ CABECERA
         # ==========================
         cabecera = LogisticaDashboard.objects.filter(num_reg=num_reg).first()
 
         if not cabecera:
             return Response(
-                {"error": f"No se encontró el movimiento con número {num_reg}"},
+                {"error": f"No se encontrÃ³ el movimiento con nÃºmero {num_reg}"},
                 status=404
             )
 
         # ==========================
-        # 2️⃣ DETALLE
+        # 2ï¸âƒ£ DETALLE
         # ==========================
         detalles = LogisticaDashboardDetalle.objects.filter(num_reg=num_reg)
 
@@ -990,7 +1060,7 @@ def logistica_modal_view(request, num_reg):
             })
 
         # ==========================
-        # 3️⃣ RESPONSE FINAL
+        # 3ï¸âƒ£ RESPONSE FINAL
         # ==========================
         response_data = {
             "cabecera": {
@@ -1037,24 +1107,24 @@ def logistica_modal_view(request, num_reg):
 @permission_classes([IsAuthenticated])
 def logistica_modal_view_sal(request, num_reg):
     """
-    Retorna los detalles completos de un movimiento logístico
+    Retorna los detalles completos de un movimiento logÃ­stico
     usando num_reg como clave principal.
     """
 
     try:
         # ==========================
-        # 1️⃣ CABECERA
+        # 1ï¸âƒ£ CABECERA
         # ==========================
         cabecera = LogisticaDashboard.objects.filter(num_reg=num_reg).first()
 
         if not cabecera:
             return Response(
-                {"error": f"No se encontró el movimiento con número {num_reg}"},
+                {"error": f"No se encontrÃ³ el movimiento con nÃºmero {num_reg}"},
                 status=404
             )
 
         # ==========================
-        # 2️⃣ DETALLE
+        # 2ï¸âƒ£ DETALLE
         # ==========================
         detalles = LogisticaDashboardDetalle.objects.filter(num_reg=num_reg)
 
@@ -1081,7 +1151,7 @@ def logistica_modal_view_sal(request, num_reg):
             })
 
         # ==========================
-        # 3️⃣ RESPONSE FINAL
+        # 3ï¸âƒ£ RESPONSE FINAL
         # ==========================
         response_data = {
             "cabecera": {
@@ -1131,7 +1201,7 @@ from django.db.models.functions import Trim
 def logistica_productos_view(request):
     q = request.GET.get("q", "")
 
-    # ✅ Normalizamos campos con TRIM
+    # âœ… Normalizamos campos con TRIM
     productos = LogisticaDashboardDetalle.objects.annotate(
         cod_trim=Trim('cod'),
         nom_trim=Trim('nom'),
@@ -1142,7 +1212,7 @@ def logistica_productos_view(request):
             Q(cod_trim__icontains=q) | Q(nom_trim__icontains=q)
         )
 
-    # ✅ Distinct por código+nombre ya recortados
+    # âœ… Distinct por cÃ³digo+nombre ya recortados
     productos = (
         productos
         .values("cod_trim", "nom_trim")
@@ -1166,7 +1236,7 @@ def logistica_productos_view(request):
 def logistica_umed_view(request):
     q = request.GET.get("q", "")
 
-    # ✅ Sin filtro de activo para traer todos
+    # âœ… Sin filtro de activo para traer todos
     umed = AlmTabUmed.objects.all()
 
     if q:
@@ -1183,7 +1253,7 @@ def logistica_umed_view(request):
             "abr":    u["abr"] or "",
         }
         for u in umed
-        if u["cod"]  # ← descarta filas con cod NULL
+        if u["cod"]  # â†  descarta filas con cod NULL
     ]
 
     return Response(data)
@@ -1217,17 +1287,467 @@ def logistica_areas_view(request):
 
     return Response(data)
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def logistica_next_num_reg(request):
-    ultimo = LogisticaDashboard.objects.aggregate(maximo=Max('num_reg'))['maximo']
-    siguiente = (int(ultimo) if ultimo else 0) + 1
+def reporte_almacen_dashboard_html(request):
+    """Reporte HTML de ENTRADAS de almacén (ope='E')."""
+    anno = request.GET.get("anno", "%")
+    mes = request.GET.get("mes", "%")
+    referencia = request.GET.get("referencia", "%")
+    almacen = request.GET.get("almacen", "%")
+    operacion = request.GET.get("operacion", "%")
 
-    return Response({
-        'num_reg': siguiente,
-        'num_reg_formatted': str(siguiente).zfill(8),  # ej: "00000025"
+    data = LogisticaDashboard.objects.all()
+
+    if anno and anno != "%":
+        data = data.filter(anno=anno)
+
+    if mes and mes != "%":
+        data = data.filter(mes=mes.zfill(2))
+
+    if referencia != "%":
+        data = data.filter(mov=referencia)
+
+    if almacen != "%":
+        data = data.filter(alm=almacen)
+
+    if operacion and operacion != "%":
+        data = data.filter(ope=operacion)   # E = Entradas
+
+    data = data.order_by("-fec", "-num_reg")
+    total_soles = sum(float(r.sol or 0) for r in data)
+    total_dolares = sum(float(r.dol or 0) for r in data)
+
+    html = render_to_string("reportes/reporte_almacen.html", {
+        "data": data,
+        "anno": anno,
+        "mes": mes,
+        "almacen": almacen,
+        "referencia": referencia,
+        "operacion": operacion,
+        "total_soles": round(total_soles, 2),
+        "total_dolares": round(total_dolares, 2),
     })
 
+    return HttpResponse(html)
+
+
+def reporte_almacen_salidas_dashboard_html(request):
+    """Reporte HTML de SALIDAS de almacén (ope='S')."""
+    anno = request.GET.get("anno", "%")
+    mes = request.GET.get("mes", "%")
+    referencia = request.GET.get("referencia", "%")
+    almacen = request.GET.get("almacen", "%")
+    operacion = request.GET.get("operacion", "%")
+
+    data = LogisticaDashboard.objects.all()
+
+    if anno and anno != "%":
+        data = data.filter(anno=anno)
+
+    if mes and mes != "%":
+        data = data.filter(mes=mes.zfill(2))
+
+    if referencia != "%":
+        data = data.filter(mov=referencia)
+
+    if almacen != "%":
+        data = data.filter(alm=almacen)
+
+    if operacion and operacion != "%":
+        data = data.filter(ope=operacion)   # S = Salidas
+
+    data = data.order_by("-fec", "-num_reg")
+    total_soles = sum(float(r.sol or 0) for r in data)
+    total_dolares = sum(float(r.dol or 0) for r in data)
+
+    html = render_to_string("reportes/reporte_almacen_salidas.html", {
+        "data": data,
+        "anno": anno,
+        "mes": mes,
+        "almacen": almacen,
+        "referencia": referencia,
+        "operacion": operacion,
+        "total_soles": round(total_soles, 2),
+        "total_dolares": round(total_dolares, 2),
+    })
+
+    return HttpResponse(html)
+
+
+from django.db.models import Max
+
+# def get_next_num_reg():
+#     max_id = LogisticaDashboard.objects.aggregate(Max('num_reg'))['num_reg__max']
+#     return (max_id or 0) + 1
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.db import transaction
+from django.db.models import Max
+from .models import TipoCambio, LogisticaDashboard, LogisticaDashboardDetalle
+from datetime import datetime
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def logistica_movimiento(request):
+    try:
+        data = request.data
+        print("ðŸ”µ REQUEST:", data)
+
+        # ==========================
+        # VALIDACIONES INICIALES
+        # ==========================
+        ope = data.get("ope")
+        if ope not in ["E", "S"]:
+            return Response({"error": "OperaciÃ³n invÃ¡lida"}, status=400)
+
+        items = data.get("items", [])
+        if not items:
+            return Response({"error": "No hay items para insertar"}, status=400)
+
+        moneda = data.get("moneda")
+
+        # ==========================
+        # FECHA / MES / AÃ‘O
+        # ==========================
+        fecha_str = data.get("fecha")
+        if not fecha_str:
+            return Response({"error": "Fecha requerida"}, status=400)
+
+        fecha = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+        mes = str(fecha.month).zfill(2)
+        anno = str(fecha.year)
+
+        # ==========================
+        # TIPO DE CAMBIO
+        # ==========================
+        tc = float(data.get("tc") or 0)
+
+        # ðŸ”¥ Si no viene TC, buscar en cont_tcambio
+        if tc <= 0:
+            tcambio = (
+                TipoCambio.objects
+                .filter(fec=fecha, activo='1')
+                .order_by('-hor')
+                .first()
+            )
+
+            if tcambio:
+                tc = float(tcambio.com or 0)
+                print(f"ðŸ’± TC obtenido de BD: {tc}")
+            else:
+                return Response(
+                    {"error": f"No existe tipo de cambio para la fecha {fecha}"},
+                    status=400
+                )
+
+        # ValidaciÃ³n final
+        if moneda == "Dolares" and tc <= 0:
+            return Response({"error": "Tipo de cambio invÃ¡lido"}, status=400)
+
+        # ==========================
+        # CALCULAR TOTALES CABECERA
+        # ==========================
+        total_soles = 0
+        total_dolares = 0
+
+        for item in items:
+            total = float(item.get("total") or 0)
+
+            if moneda == "Soles":
+                total_soles += total
+                total_dolares += total / tc if tc > 0 else 0
+
+            elif moneda == "Dolares":
+                total_dolares += total
+                total_soles += total * tc
+
+        # ==========================
+        # CREAR CABECERA
+        # ==========================
+        cabecera = LogisticaDashboard.objects.create(
+            ope=ope,
+            fec=fecha,  # âœ… corregido
+            oco=data.get("orden_compra"),
+            nfa=data.get("numero_doc"),
+            ngu=data.get("nro_guia"),
+            cor=data.get("numero_doc"),
+            dor=data.get("razon_social"),
+            alm=data.get("almacen"),
+            tmo=moneda,
+            tc=tc,
+            mes=mes,
+            anno=anno,
+            reg=data.get("reg"),
+            obs=data.get("obs_doc"),
+            nom1=data.get("responsable"),
+            nom2=data.get("nom2"),
+            sol=round(total_soles, 2),
+            dol=round(total_dolares, 2),
+            tip=data.get("tipo_movimiento"),
+            mov=data.get("referencia"),
+            est="0",
+        )
+
+        num_reg = cabecera.num_reg
+        print(f"âœ… CABECERA CREADA: {num_reg}")
+
+        # ==========================
+        # INSERTAR DETALLE
+        # ==========================
+        print("ðŸŸ¡ INSERTANDO DETALLE...")
+
+        for index, item in enumerate(items, start=1):
+            total = float(item.get("total") or 0)
+
+            if moneda == "Soles":
+                soles = total
+                dolares = total / tc if tc > 0 else 0
+
+            elif moneda == "Dolares":
+                dolares = total
+                soles = total * tc
+
+            else:
+                soles = 0
+                dolares = 0
+
+            print(f"ðŸ‘‰ ITEM {index}: total={total}, S/={soles}, $={dolares}")
+
+            LogisticaDashboardDetalle.objects.create(
+                num_reg=num_reg,
+                num=index,
+                ope=ope,
+                cod=item.get("codigo"),
+                nom=item.get("descripcion"),
+                um=item.get("um"),
+                can=float(item.get("cant") or 0),
+                val=float(item.get("valor") or 0),
+                tot=round(total, 2),
+                sol=round(soles, 2),
+                dol=round(dolares, 2),
+                obs=item.get("orden_compra"),
+            )
+
+        print("âœ… TODO INSERTADO CORRECTAMENTE")
+
+        return Response({
+            "message": "Movimiento registrado correctamente",
+            "num_reg": num_reg,
+            "ope": ope,
+            "total_soles": round(total_soles, 2),
+            "total_dolares": round(total_dolares, 2),
+        })
+
+    except Exception as e:
+        import traceback
+        print("❌ ERROR:", traceback.format_exc())
+        return Response({"error": str(e)}, status=500)
+
+from openpyxl import Workbook
+from django.http import HttpResponse
+from datetime import datetime
+
+def formatear_fecha(f):
+    if not f:
+        return ""
+    if isinstance(f, str):
+        try:
+            f = datetime.strptime(f, "%Y-%m-%d")
+        except:
+            return f
+    return f.strftime("%d/%m/%Y")
+
+def _filtrar_reporte_almacen(data, anno="%", mes="%", referencia="%", almacen="%", operacion="%"):
+    if anno and anno != "%":
+        try:
+            data = data.filter(fec__year=int(anno))
+        except ValueError:
+            pass
+
+    if mes and mes != "%":
+        try:
+            data = data.filter(fec__month=int(mes))
+        except ValueError:
+            pass
+
+    if referencia and referencia != "%":
+        data = data.filter(mov=referencia)
+
+    if almacen and almacen != "%":
+        data = data.filter(alm=almacen)
+
+    if operacion and operacion != "%":
+        data = data.filter(ope=operacion)
+
+    return data
+
+def exportar_excel_almacen(request):
+    anno = request.GET.get("anno", "%")
+    mes = request.GET.get("mes", "%")
+    referencia = request.GET.get("referencia", "%")
+    almacen = request.GET.get("almacen", "%")
+    operacion = request.GET.get("operacion", "%")
+
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from django.http import HttpResponse
+    from django.utils.timezone import localtime, now
+    current_time = timezone.localtime()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Reporte Movimientos"
+
+    # --- CABECERA CORPORATIVA ---
+    ws.merge_cells('A1:B1')
+    ws['A1'] = "VC CORPORATION"
+    ws['A1'].font = Font(name='Arial Black', size=16, color="FF35A39C")
+    ws['A1'].alignment = Alignment(horizontal='left')
+
+    ws['A2'] = "OPTIMIZACIÓN Y AUTOMATIZACIÓN DE PROCESOS"
+    ws['A2'].font = Font(name='Arial', size=8, bold=True, color="666666")
+
+    # Título Dinámico
+    titulo = "REPORTE DE MOVIMIENTOS"
+    if operacion == "E": titulo = "REPORTE DE ENTRADAS"
+    elif operacion == "S": titulo = "REPORTE DE SALIDAS"
+
+    ws.merge_cells('C1:I1')
+    ws['C1'] = titulo
+    ws['C1'].font = Font(name='Arial', size=14, bold=True)
+    ws['C1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    # Fecha de generación
+    ws.merge_cells('J2:K2')
+    ws['J2'] = f"Fecha: {current_time.strftime('%d/%m/%Y %H:%M')}"
+    ws['J2'].font = Font(name='Arial', size=9, italic=True)
+    ws['J2'].alignment = Alignment(horizontal='right')
+
+    # --- ESTILOS DE TABLA ---
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    header_font = Font(name='Arial', bold=True, color="FFFFFF")
+    total_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+    even_row_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin', color="CBD5E1"), 
+        right=Side(style='thin', color="CBD5E1"), 
+        top=Side(style='thin', color="CBD5E1"), 
+        bottom=Side(style='thin', color="CBD5E1")
+    )
+
+    # HEADERS en Fila 4
+    headers = ["N°", "Fecha", "OC", "Factura", "Guía", "Proveedor", "Tipo", "Almacén", "Moneda", "Soles", "Dólares"]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.border = thin_border
+
+    # Anchos de columna
+    column_widths = [20, 30, 20, 14, 14, 38, 12, 12, 10, 14, 14]
+    for i, width in enumerate(column_widths, 1):
+        ws.column_dimensions[ws.cell(row=4, column=i).column_letter].width = width
+
+    # --- DATOS ---
+    data_qs = LogisticaDashboard.objects.all()
+    data_qs = _filtrar_reporte_almacen(
+        data=data_qs,
+        anno=anno,
+        mes=mes,
+        referencia=referencia,
+        almacen=almacen,
+        operacion=operacion,
+    ).order_by("-fec", "-num_reg")
+
+    total_soles = 0
+    total_dolares = 0
+    
+    current_row = 5
+    for r in data_qs:
+        row_data = [
+            r.num_reg,
+            r.fec.strftime('%d/%m/%Y') if r.fec else "",
+            r.oco or "",
+            r.nfa or "",
+            r.ngu or "",
+            r.dor or "",
+            r.tip or "",
+            r.alm or "",
+            r.tmo or "",
+            float(r.sol or 0),
+            float(r.dol or 0)
+        ]
+        
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=current_row, column=col_num)
+            cell.value = value
+            cell.border = thin_border
+            cell.font = Font(name='Arial', size=9)
+            
+            # Alineación específica
+            if col_num in [6, 8]:  # Proveedor, Almacén
+                cell.alignment = left_align
+            else:
+                cell.alignment = center_align
+            
+            # Color de fila alterna
+            if current_row % 2 == 0:
+                cell.fill = even_row_fill
+
+        # Formato moneda
+        ws.cell(row=current_row, column=10).number_format = '"S/ " #,##0.00'
+        ws.cell(row=current_row, column=11).number_format = '"$ " #,##0.00'
+
+        total_soles += float(r.sol or 0)
+        total_dolares += float(r.dol or 0)
+        current_row += 1
+
+    # --- FILA DE TOTALES ---
+    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
+    total_label_cell = ws.cell(row=current_row, column=1)
+    total_label_cell.value = "TOTALES"
+    total_label_cell.font = Font(bold=True)
+    total_label_cell.alignment = Alignment(horizontal='right', vertical='center')
+
+    # Valores de totales
+    cell_soles = ws.cell(row=current_row, column=10)
+    cell_soles.value = total_soles
+    cell_soles.font = Font(bold=True)
+    cell_soles.number_format = '"S/ " #,##0.00'
+    cell_soles.alignment = center_align
+
+    cell_dolares = ws.cell(row=current_row, column=11)
+    cell_dolares.value = total_dolares
+    cell_dolares.font = Font(bold=True)
+    cell_dolares.number_format = '"$ " #,##0.00'
+    cell_dolares.alignment = center_align
+
+    for col in range(1, 12):
+        ws.cell(row=current_row, column=col).fill = total_fill
+        ws.cell(row=current_row, column=col).border = thin_border
+
+    # --- RESPUESTA ---
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    
+    filename = f"Reporte_{titulo.replace(' ', '_')}_{current_time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    response = HttpResponse(
+        excel_buffer.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def exportar_excel_entradas(request):
+    return exportar_excel_almacen(request)
 
 ###################################################################3
 
@@ -1236,8 +1756,8 @@ def logistica_next_num_reg(request):
 def buscar_ordenes_oc(request):
     """
     GET /logistica/dashboard/ordenes-oc/?proveedor=...&numero=...
-    - proveedor: RUC o razón social
-    - numero: número de orden
+    - proveedor: RUC o razÃ³n social
+    - numero: nÃºmero de orden
     """
     proveedor = (request.query_params.get('proveedor') or '').strip()
     numero = (request.query_params.get('numero') or '').strip()
@@ -1260,7 +1780,7 @@ def buscar_ordenes_oc(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def detalle_orden_compra(request, reg):
-    print("▶ detalle_orden_compra reg =", reg)  # debug
+    print("â–¶ detalle_orden_compra reg =", reg)  # debug
 
     try:
         items = (
@@ -1269,7 +1789,7 @@ def detalle_orden_compra(request, reg):
             .order_by('num')
         )
 
-        print("▶ cantidad items =", items.count())
+        print("â–¶ cantidad items =", items.count())
 
         data = [
             {
@@ -1288,7 +1808,7 @@ def detalle_orden_compra(request, reg):
 
     except Exception as e:
         import traceback
-        print("❌ ERROR detalle_orden_compra:", e)
+        print("âŒ ERROR detalle_orden_compra:", e)
         traceback.print_exc()
         return Response(
             {"detail": "Error en detalle_orden_compra", "error": str(e)},
@@ -1303,7 +1823,7 @@ def detalle_orden_compra(request, reg):
 def listar_suministros(request, num_reg):
     try:
         # ======================
-        # 📄 LISTAR
+        # ðŸ“„ LISTAR
         # ======================
         if request.method == "GET":
             suministros = CotiSuministros.objects.filter(
@@ -1314,7 +1834,7 @@ def listar_suministros(request, num_reg):
             return Response(serializer.data)
 
         # ======================
-        # ➕ CREAR
+        # âž• CREAR
         # ======================
         if request.method == "POST":
             data = request.data.copy()
@@ -1328,7 +1848,7 @@ def listar_suministros(request, num_reg):
             return Response(serializer.errors, status=400)
 
         # ======================
-        # ✏️ ACTUALIZAR
+        # âœï¸ ACTUALIZAR
         # ======================
         if request.method == "PUT":
             item_id = request.data.get("id")
@@ -1336,7 +1856,7 @@ def listar_suministros(request, num_reg):
             try:
                 item_id = int(item_id)
             except (TypeError, ValueError):
-                return Response({"error": "ID inválido"}, status=400)
+                return Response({"error": "ID invÃ¡lido"}, status=400)
 
             suministro = CotiSuministros.objects.get(
                 id=item_id,
@@ -1366,12 +1886,12 @@ def listar_suministros(request, num_reg):
         return Response({"error": str(e)}, status=500)
 
 def clean_text(text):
-    """Limpia espacios, tabulaciones, saltos de línea y decodifica HTML."""
+    """Limpia espacios, tabulaciones, saltos de lÃ­nea y decodifica HTML."""
     if not text:
         return ""
     # Decodifica entidades HTML
     text = unescape(text)
-    # Reemplaza cualquier secuencia de espacios o saltos de línea por un solo espacio
+    # Reemplaza cualquier secuencia de espacios o saltos de lÃ­nea por un solo espacio
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
@@ -1412,7 +1932,7 @@ def listar_servicios(request, num_reg):
             for row in rows.filter(nig=1):
                 tipo_digito = row.cog[3]  # 4,5,6
                 subgrupo = {
-                    "titulo": clean_text(row.nog),       # 🔹 título real de DB
+                    "titulo": clean_text(row.nog),       # ðŸ”¹ tÃ­tulo real de DB
                     "tipoCodigo": f"0{tipo_digito}",     # "04", "05", "06"
                     "tipoNombre": tipo_map.get(tipo_digito, "DESCONOCIDO"),
                     "items": []
@@ -1421,7 +1941,7 @@ def listar_servicios(request, num_reg):
 
             # 4) ASIGNAR ITEMS (nig = 2)
             for row in rows.filter(nig=2):
-                # Buscar el subgrupo correspondiente según los primeros 4 dígitos del cog
+                # Buscar el subgrupo correspondiente segÃºn los primeros 4 dÃ­gitos del cog
                 prefijo = row.cog[:4]
                 for sg in subgrupos:
                     if sg["tipoCodigo"] == f"0{row.cog[3]}":
@@ -1433,8 +1953,8 @@ def listar_servicios(request, num_reg):
 
             resultado.append({
                 "tituloGeneral": titulo_general,
-                "cantidad": str(servicio.can or "1"),   # 🔹 can (nig = 0)
-                "detalle": servicio.tog or "",           # 🔹 tog (HTML)
+                "cantidad": str(servicio.can or "1"),   # ðŸ”¹ can (nig = 0)
+                "detalle": servicio.tog or "",           # ðŸ”¹ tog (HTML)
                 "subgrupos": subgrupos
             })
 
@@ -1453,7 +1973,7 @@ def listar_mensajes(request, num_reg):
         mensajes = CotiMensajes.objects.filter(
             num_reg=num_reg,
             act="1"  # Solo activos
-        ).order_by("dat")  # Orden cronológico, más antiguos primero
+        ).order_by("dat")  # Orden cronolÃ³gico, mÃ¡s antiguos primero
 
         serializer = CotiMensajesSerializer(mensajes, many=True)
         return Response(serializer.data)
@@ -1471,7 +1991,7 @@ def listar_seguimientos(request, num_reg):
         seguimientos = CotiSeguimiento.objects.filter(
             num_reg=num_reg,
             act="1"  # Solo activos
-        ).order_by("dat")  # Orden cronológico, más antiguos primero
+        ).order_by("dat")  # Orden cronolÃ³gico, mÃ¡s antiguos primero
 
         serializer = CotiSeguimientoSerializer(seguimientos, many=True)
         return Response(serializer.data)
@@ -1514,7 +2034,7 @@ def totales_descuento_view(request, num_reg):
 @permission_classes([IsAuthenticated])
 def recalcular_totales_cotizacion(request, num_reg):
     """
-    Recalcula el total de la cotización basado en suministros y servicios.
+    Recalcula el total de la cotizaciÃ³n basado en suministros y servicios.
     Retorna el total actualizado.
     """
     try:
@@ -1547,7 +2067,7 @@ def recalcular_totales_cotizacion(request, num_reg):
         })
 
     except DashboardCotizacion.DoesNotExist:
-        return Response({"error": "Cotización no encontrada"}, status=404)
+        return Response({"error": "CotizaciÃ³n no encontrada"}, status=404)
 
 #========================================================================================
 
@@ -1563,7 +2083,7 @@ def guardar_cotizacion(request):
         num_reg = request.data.get("num_reg")
 
         # =========================
-        # 1️⃣ CREAR O ACTUALIZAR
+        # 1ï¸âƒ£ CREAR O ACTUALIZAR
         # =========================
         if num_reg:
             cotizacion = DashboardCotizacion.objects.select_for_update().get(
@@ -1580,11 +2100,11 @@ def guardar_cotizacion(request):
             )
 
         # =========================
-        # 2️⃣ DATOS
+        # 2ï¸âƒ£ DATOS
         # =========================
         data = request.data.copy()
 
-        # 🔒 Si no viene acu_e, NO tocarlo
+        # ðŸ”’ Si no viene acu_e, NO tocarlo
         if "acu_e" not in data:
             data.pop("acu_e", None)
 
@@ -1599,7 +2119,7 @@ def guardar_cotizacion(request):
         cotizacion.igv = cotizacion.igv or "N"
 
         # =========================
-        # 3️⃣ SNAPSHOT CLIENTE
+        # 3ï¸âƒ£ SNAPSHOT CLIENTE
         # =========================
         if cotizacion.cliente_codigo:
             cliente = vc_tab_clientes_d.objects.filter(
@@ -1626,7 +2146,7 @@ def guardar_cotizacion(request):
         cotizacion.save()
 
         # =========================
-        # 4️⃣ SUMINISTROS
+        # 4ï¸âƒ£ SUMINISTROS
         # =========================
         suministros = request.data.get("suministros", {})
 
@@ -1635,7 +2155,7 @@ def guardar_cotizacion(request):
             num_reg=cotizacion.num_reg
         ).delete()
 
-        # 👉 Mapeo TIPO → CÓDIGO
+        # ðŸ‘‰ Mapeo TIPO â†’ CÃ“DIGO
         TIPO_MAP = {
             "01": "01",
             "02": "02",
@@ -1651,7 +2171,7 @@ def guardar_cotizacion(request):
             # =====================
             cog = grupo.get("cog") or grupo.get("id")
 
-            # Fallback de seguridad (por si viene vacío)
+            # Fallback de seguridad (por si viene vacÃ­o)
             if not cog:
                 tipo = grupo.get("tipo", "01")
                 tipo_code = TIPO_MAP.get(tipo, "01")
@@ -1718,7 +2238,7 @@ def guardar_cotizacion(request):
                 num_contador += 1
 
         # =========================
-        # 5️⃣ SERVICIOS
+        # 5ï¸âƒ£ SERVICIOS
         # =========================
         servicios = request.data.get("servicios", {})
 
@@ -1754,7 +2274,7 @@ def guardar_cotizacion(request):
                 cod="0",
                 can=cantidad_servicio,
                 tot=Decimal("0.00"),
-                tog=servicio.get("detalle", ""),  # 🔴 AQUÍ
+                tog=servicio.get("detalle", ""),  # ðŸ”´ AQUÃ
             )
 
             num_servicio = num_contador
@@ -1765,7 +2285,7 @@ def guardar_cotizacion(request):
             # =====================
             for sub in servicio.get("subgrupos", []):
                 tipo = sub.get("titulo", "OTROS")
-                tipo_code = sub.get("tipoCodigo", "06")  # 🔹 usamos el tipo que envía frontend
+                tipo_code = sub.get("tipoCodigo", "06")  # ðŸ”¹ usamos el tipo que envÃ­a frontend
                 total_sub = Decimal("0.00")
 
                 cog_sub = f"{grupo_index:02d}{tipo_code}1"
@@ -1838,7 +2358,7 @@ def guardar_cotizacion(request):
             grupo_index += 1
 
         # =========================
-        # 6️⃣ MENSAJES
+        # 6ï¸âƒ£ MENSAJES
         # =========================
         mensaje_data = request.data.get("mensaje")
 
@@ -1851,15 +2371,15 @@ def guardar_cotizacion(request):
             )
 
         # =========================
-        # 7️⃣ SEGUIMIENTOS
+        # 7ï¸âƒ£ SEGUIMIENTOS
         # =========================
-        seguimiento_data = request.data.get("seguimiento")  # 🔑 similar a "mensaje"
+        seguimiento_data = request.data.get("seguimiento")  # ðŸ”‘ similar a "mensaje"
 
         if seguimiento_data:
             # Crear nuevo registro en CotiSeguimiento
             CotiSeguimiento.objects.create(
                 num_reg=cotizacion.num_reg,
-                num=seguimiento_data.get("num", 0),  # opcional, si no lo envías
+                num=seguimiento_data.get("num", 0),  # opcional, si no lo envÃ­as
                 dat=timezone.now(),  # se usa la fecha actual como PK virtual
                 fec=timezone.now().strftime("%Y-%m-%d %H:%M:%S"),  # tu campo 'fec' string
                 hor=timezone.now().strftime("%H:%M:%S"),  # opcional
@@ -1869,7 +2389,7 @@ def guardar_cotizacion(request):
             )
 
         # =========================
-        # 8️⃣ TOTAL GENERAL + DESCUENTO
+        # 8ï¸âƒ£ TOTAL GENERAL + DESCUENTO
         # =========================
         descuento = request.data.get("descuento", {})
         aplicar = descuento.get("aplicar", False)
@@ -1903,7 +2423,7 @@ def guardar_cotizacion(request):
         if total_general < 0:
             total_general = Decimal("0.00")
 
-        # 👉 ASIGNAR TODO
+        # ðŸ‘‰ ASIGNAR TODO
         cotizacion.tot_c = total_general
         cotizacion.des_a = 1 if aplicar else 0
 
@@ -1919,7 +2439,7 @@ def guardar_cotizacion(request):
         cotizacion.des_p = porcentaje_desc
         cotizacion.des_m = importe_desc
 
-        # 👉 AHORA SÍ guardar
+        # ðŸ‘‰ AHORA SÃ guardar
         cotizacion.save(update_fields=[
             "tot_c",
             "des_a",
@@ -1930,7 +2450,7 @@ def guardar_cotizacion(request):
 
         return Response(
             {
-                "message": "Cotización guardada correctamente",
+                "message": "CotizaciÃ³n guardada correctamente",
                 "num_reg": cotizacion.num_reg
             },
             status=status.HTTP_200_OK if num_reg else status.HTTP_201_CREATED
@@ -1954,7 +2474,7 @@ def obtener_siguiente_num_reg():
         if ultimo is not None:
             return ultimo + 1
 
-        # 🚀 Primer registro del año
+        # ðŸš€ Primer registro del aÃ±o
         return int(f"{anio}000001")
 
 #========================================================================================
@@ -2008,8 +2528,8 @@ def subir_archivo(request):
                 print("Error al escribir archivo:", e)
                 return JsonResponse({"ok": False, "error": str(e)})
         else:
-            return JsonResponse({"ok": False, "error": "No se recibió archivo"})
-    return JsonResponse({"ok": False, "error": "Método no permitido"})
+            return JsonResponse({"ok": False, "error": "No se recibiÃ³ archivo"})
+    return JsonResponse({"ok": False, "error": "MÃ©todo no permitido"})
 
 @csrf_exempt
 def listar_adjuntos(request, num_reg):
@@ -2047,592 +2567,8 @@ def eliminar_archivo(request):
         except Exception as e:
             return JsonResponse({"ok": False, "error": str(e)})
 
-    return JsonResponse({"ok": False, "error": "Método no permitido"})
+    return JsonResponse({"ok": False, "error": "MÃ©todo no permitido"})
 
-##=========##
-## GESTION ##
-##=========##
-@api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated])
-def condiciones_generales(request, num_reg):
-    """
-    GET:  retorna {"numero", "condiciones"}  (acu_e)
-    POST: recibe { "condiciones": "texto..." } y actualiza acu_e
-    """
-    try:
-        cot = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-        if not cot:
-            return Response({"error": f"No se encontró la cotización #{num_reg}"}, status=404)
-
-        if request.method == "GET":
-            return Response({
-                "numero": cot.num_reg,
-                "condiciones": cot.acu_e or ""
-            }, status=200)
-
-        # POST -> actualizar
-        contenido = request.data.get("condiciones", "")
-        # opcional: limpiar/trimming
-        if isinstance(contenido, str):
-            contenido = contenido.strip()
-
-        # usar transaction por seguridad
-        with transaction.atomic():
-            cot.acu_e = contenido
-            cot.save(update_fields=["acu_e"])
-
-        return Response({
-            "status": "ok",
-            "msg": "Condiciones guardadas correctamente.",
-            "numero": cot.numero,
-            "condiciones": cot.acu_e or ""
-        }, status=200)
-
-    except Exception as e:
-        import traceback
-        print("Error en condiciones_generales:", traceback.format_exc())
-        return Response({"error": str(e)}, status=500)
-
-@csrf_exempt
-@api_view(["GET", "POST"])
-def generar_codigo_cotizacion(request, num_reg):
-
-    try:
-        # =========================
-        # OBTENER COTIZACIÓN
-        # =========================
-        cot = DashboardCotizacion.objects.get(num_reg=num_reg)
-
-        # Si ya tiene código, no inventamos nada
-        if cot.numero:
-            return JsonResponse({
-                "success": True,
-                "codigo": cot.numero,
-                "exists": True
-            })
-
-        # =========================
-        # AÑO
-        # =========================
-        year_full = cot.anno              # ej: 2025
-        year = year_full[-2:]             # ej: 25
-
-        # =========================
-        # ÁREA
-        # =========================
-        area = str(cot.area_codigo)
-
-        # =========================
-        # ÚLTIMA SECUENCIA POR AÑO + ÁREA
-        # =========================
-        qs = (
-            DashboardCotizacion.objects
-            .filter(
-                anno=year_full,
-                area_codigo=area,
-                numero__isnull=False,
-            )
-            .exclude(numero="")
-            .values_list("numero", flat=True)
-        )
-
-        max_corr = 0
-        len_base = len(year) + len(area)  # 2 + 1 = 3
-
-        for num in qs:
-            try:
-                corr = int(num[len_base:len_base+3])   # los 3 dígitos del correlativo
-                max_corr = max(max_corr, corr)
-            except Exception:
-                continue
-
-        correlativo = max_corr + 1
-        correlativo_str = str(correlativo).zfill(3)
-
-        # =========================
-        # BASE DEL CÓDIGO
-        # =========================
-        base_codigo = f"{year}{area}{correlativo_str}"
-
-        # =========================
-        # VERSIÓN (A, B, C...)
-        # =========================
-        existentes = (
-            DashboardCotizacion.objects
-            .filter(numero__startswith=base_codigo)
-            .values_list("numero", flat=True)
-        )
-
-        if not existentes:
-            version = "A"
-        else:
-            letras = [c[len(base_codigo)] for c in existentes]
-            version = ascii_uppercase[ascii_uppercase.index(max(letras)) + 1]
-
-        # =========================
-        # CLIENTE
-        # =========================
-        cliente = vc_tab_clientes.objects.get(codigo=cot.cliente_codigo)
-        iniciales = cliente.iniciales
-
-        # =========================
-        # TIPO
-        # =========================
-        tipo = cot.cotit
-
-        # =========================
-        # CÓDIGO FINAL
-        # =========================
-        codigo_final = f"{base_codigo}{version}-{iniciales}-{tipo}"
-
-        # =========================
-        # SOLO GUARDA EN POST
-        # =========================
-        if request.method == "POST":
-            cot.numero = codigo_final
-            cot.save(update_fields=["numero"])
-
-        return JsonResponse({
-            "success": True,
-            "codigo": codigo_final,
-            "preview": request.method == "GET"
-        })
-
-    except DashboardCotizacion.DoesNotExist:
-        return JsonResponse({
-            "success": False,
-            "error": "Cotización no encontrada"
-        }, status=404)
-
-@api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated])
-def descuento_cotizacion(request, num_reg):
-
-    num_reg = str(num_reg)
-
-    cot = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-
-    if not cot:
-        return Response({}, status=404)
-
-    # ============================
-    # 🔹 GET → OBTENER
-    # ============================
-    if request.method == "GET":
-
-        afecto_map = {
-            "T": "t",
-            "S": "su",
-            "M": "ser",
-        }
-
-        return Response({
-            "aplicar": bool(cot.des_a),
-            "afecto": afecto_map.get(cot.des_t, "t"),
-            "porcentaje": str(cot.des_p or ""),
-            "importe": str(cot.des_m or ""),
-        })
-
-    # ============================
-    # 🔹 POST → GUARDAR + RECALCULAR TOTAL
-    # ============================
-
-    data = request.data
-
-    afecto_reverse = {
-        "t": "T",
-        "su": "S",
-        "ser": "M",
-    }
-
-    # ----------------------------
-    # 📌 Guardar descuento
-    # ----------------------------
-
-    aplicar = bool(data.get("aplicar"))
-
-    afecto_front = data.get("afecto", "t")
-
-    cot.des_a = 1 if aplicar else 0
-    cot.des_t = afecto_reverse.get(afecto_front, "T")
-
-    cot.des_p = data.get("porcentaje") or None
-    cot.des_m = data.get("importe") or None
-
-    # ----------------------------
-    # 🔁 RECALCULAR TOTALES
-    # ----------------------------
-
-    total_suministros = CotiSuministros.objects.filter(
-        num_reg=num_reg,
-        nig=0
-    ).aggregate(
-        total=Coalesce(
-            Sum(
-                ExpressionWrapper(
-                    F("tot") * F("can"),
-                    output_field=DecimalField(max_digits=18, decimal_places=2),
-                )
-            ),
-            Decimal("0.00")
-        )
-    )["total"]
-
-    total_servicios = CotiServicios.objects.filter(
-        num_reg=num_reg,
-        nig=0
-    ).aggregate(
-        total=Coalesce(
-            Sum("tot"),
-            Decimal("0.00")
-        )
-    )["total"]
-
-    total_general = total_suministros + total_servicios
-
-    # ----------------------------
-    # 🔻 Aplicar descuento
-    # ----------------------------
-
-    importe_desc = Decimal(str(data.get("importe") or 0))
-
-    if aplicar and importe_desc > 0:
-
-        if afecto_front == "t":
-            total_general -= importe_desc
-
-        elif afecto_front == "su":
-            total_general = (total_suministros - importe_desc) + total_servicios
-
-        elif afecto_front == "ser":
-            total_general = total_suministros + (total_servicios - importe_desc)
-
-    if total_general < 0:
-        total_general = Decimal("0.00")
-
-    cot.tot_c = total_general
-
-    # ----------------------------
-    # 💾 Guardar todo
-    # ----------------------------
-
-    cot.save(update_fields=[
-        "tot_c",
-        "des_a",
-        "des_t",
-        "des_p",
-        "des_m",
-    ])
-
-    return Response({"ok": True})
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def cotizacion_pdf_context(request, num_reg):
-    context = build_cotizacion_pdf_context(num_reg)
-
-    if not context:
-        return Response({"error": "Cotización no existe"}, status=404)
-
-    return Response(context)
-
-@csrf_exempt
-def cotizacion_pdf_preview(request, num_reg):
-    context = build_cotizacion_pdf_context(num_reg)
-
-    if not context:
-        return HttpResponse("Cotización no existe", status=404)
-
-    return render(request, "reportes/cotizacion_pdf.html", context)
-
-def build_cotizacion_pdf_context(num_reg):
-
-    # =========================
-    # CABECERA (solo campos usados)
-    # =========================
-    cotizacion = (
-        DashboardCotizacion.objects
-        .only(
-            "numero", "fecha", "referencia", "cliente_codigo",
-            "nombr", "cargr", "teler", "movir", "mailr",
-            "nombc", "telec", "mov1c", "mov2c", "mov3c", "mailc",
-            "nombt", "telet", "mov1t", "mov2t", "mov3t", "mailt",
-            "plazo", "tot_d", "por_c", "tot_s", "tcamb",
-            "fpago", "lugar",
-            "tmone", "igv",
-            "valid", "acu_s",
-            "tot_c", "acu_e", "des_m"
-        )
-        .filter(num_reg=num_reg)
-        .first()
-    )
-
-    if not cotizacion:
-        return None
-
-    # =========================
-    # DETALLES
-    # =========================
-    suministros_qs = (
-        CotiSuministros.objects
-        .filter(num_reg=num_reg)
-        .order_by("cog", "nig", "num")
-        .iterator()
-    )
-
-    servicios_qs = (
-        CotiServicios.objects
-        .filter(num_reg=num_reg)
-        .order_by("cog", "nig", "num")
-        .iterator()
-    )
-
-    # =========================
-    # CABECERA CONTEXT
-    # =========================
-    cabecera = {
-        "numero": cotizacion.numero,
-        "fecha": cotizacion.fecha,
-        "referencia": cotizacion.referencia,
-        "cliente": cotizacion.cliente_codigo,
-        "atencion": {
-            "nombre": cotizacion.nombr,
-            "cargo": cotizacion.cargr,
-            "telefono": cotizacion.teler or cotizacion.movir,
-            "correo": cotizacion.mailr,
-        },
-        "comercial": {
-            "nombre": cotizacion.nombc,
-            "telefono": cotizacion.telec,
-            "movil1": cotizacion.mov1c,
-            "movil2": cotizacion.mov2c,
-            "movil3": cotizacion.mov3c,
-            "correo": cotizacion.mailc,
-        },
-        "tecnico": {
-            "nombre": cotizacion.nombt,
-            "telefono": cotizacion.telet,
-            "movil1": cotizacion.mov1t,
-            "movil2": cotizacion.mov2t,
-            "movil3": cotizacion.mov3t,
-            "correo": cotizacion.mailt,
-        },
-        "tiempo_entrega": {
-            "suministros": {
-                "cantidad": cotizacion.plazo,
-                "tipo": "Días" if cotizacion.tot_d == "D" else "Semanas" if cotizacion.tot_d == "S" else "Meses",
-            },
-            "servicios": {
-                "cantidad": cotizacion.por_c,
-                "tipo": "Días" if cotizacion.tot_s == "D" else "Semanas" if cotizacion.tot_s == "S" else "Meses",
-            },
-        },
-        "forma_pago": cotizacion.fpago,
-        "lugar_entrega": cotizacion.lugar,
-        "moneda": "Dólares" if cotizacion.tmone == "D" else "Soles",
-        "moneda_simbolo": "USD" if cotizacion.tmone == "D" else "PEN",
-        "incluye_igv": cotizacion.igv == "S",
-        "validez": {
-            "cantidad": cotizacion.valid,
-            "tipo": "Días" if cotizacion.acu_s == "D" else "Semanas" if cotizacion.acu_s == "S" else "Meses",
-        },
-    }
-
-    # =========================
-    # CONVERSIÓN MONEDA
-    # =========================
-    def convertir(valor, cotizacion):
-        if cotizacion.tmone == "S" and cotizacion.tcamb:
-            return (valor or Decimal("0.00")) * cotizacion.tcamb
-        return valor or Decimal("0.00")
-
-    # =========================
-    # SUMINISTROS
-    # =========================
-    grupos = OrderedDict()
-
-    for s in suministros_qs:
-
-        if not s.cog:
-            continue
-
-        if s.nig == 0:
-
-            can = s.can or Decimal("1.00")
-            tot = convertir(s.tot, cotizacion)
-
-            grupos[s.cog] = {
-                "cog": s.cog,
-                "titulo": s.nog,
-                "mov": s.mov,
-                "cantidad": can,
-                "total": tot,
-                "total_grupo": tot * can,
-                "subtotal_pu_items": Decimal("0.00"),
-                "subtotal_tot_items": Decimal("0.00"),
-                "items": [],
-            }
-
-        elif s.nig == 1 and s.cog in grupos:
-
-            pu = convertir(s.puc, cotizacion)
-            tot = convertir(s.tot, cotizacion)
-
-            grupos[s.cog]["items"].append({
-                "codigo": s.cod,
-                "descripcion": s.des,
-                "unidad": s.tde,
-                "cantidad": s.can or Decimal("0.00"),
-                "precio_unitario": pu,
-                "total": tot,
-            })
-
-            grupos[s.cog]["subtotal_pu_items"] += pu
-            grupos[s.cog]["subtotal_tot_items"] += tot
-
-    suministros = list(grupos.values())
-    total_suministros = sum(
-        (g["total_grupo"] for g in suministros),
-        Decimal("0.00"),
-    )
-
-    # =========================
-    # SERVICIOS
-    # =========================
-    servicios_grupos = OrderedDict()
-
-    for s in servicios_qs:
-
-        if not s.cog:
-            continue
-
-        if s.nig == 0:
-
-            can = s.can or Decimal("1.00")
-            tot = convertir(s.tot, cotizacion)
-
-            servicios_grupos[s.cog] = {
-                "cog": s.cog,
-                "titulo": s.nog,
-                "mov": s.mov,
-                "cantidad": can,
-                "total": tot,
-                "total_servicio": tot * can,
-                "detalle": s.tog or "",
-                "subtotal_pu_items": Decimal("0.00"),
-                "subtotal_tot_items": Decimal("0.00"),
-                "items": [],
-            }
-
-        elif s.nig == 1 and s.cog in servicios_grupos:
-
-            tot = convertir(s.tot, cotizacion)
-            pu = convertir(s.puc, cotizacion)
-
-            servicios_grupos[s.cog]["items"].append({
-                "codigo": s.cod,
-                "descripcion": s.des,
-                "proveedor": s.pro,
-                "unidad": s.tde,
-                "cantidad": s.can or Decimal("0.00"),
-                "precio_unitario": pu,
-                "total": tot,
-            })
-
-            servicios_grupos[s.cog]["subtotal_pu_items"] += pu
-            servicios_grupos[s.cog]["subtotal_tot_items"] += tot
-
-    servicios = list(servicios_grupos.values())
-
-    total_servicios = sum(
-        (s["total_servicio"] for s in servicios),
-        Decimal("0.00"),
-    )
-
-    # =========================
-    # CONTEXT FINAL
-    # =========================
-    descuento = convertir(cotizacion.des_m, cotizacion)
-    total_bruto = convertir(cotizacion.tot_c, cotizacion)
-
-    total_final = total_bruto - descuento
-
-    # =========================
-    # ÍNDICE DINÁMICO
-    # =========================
-    indice = []
-    contador = 1
-
-    # 1
-    indice.append({
-        "numero": contador,
-        "titulo": "Presupuesto General"
-    })
-    contador += 1
-
-    # SUMINISTROS
-    for g in suministros:
-        indice.append({
-            "numero": contador,
-            "titulo": f"Detalle: {g['titulo']}"
-        })
-        contador += 1
-
-    # SERVICIOS
-    for s in servicios:
-        indice.append({
-            "numero": contador,
-            "titulo": f"Detalle: {s['titulo']}"
-        })
-        contador += 1
-
-    # CONDICIONES
-    indice.append({
-        "numero": contador,
-        "titulo": "Condiciones Generales y Garantías"
-    })
-
-    # =========================
-    # NUMERACIÓN DE SECCIONES
-    # =========================
-    secciones = {
-        "presupuesto": 1,
-    }
-
-    contador = 2
-
-    # Suministros
-    for g in suministros:
-        g["seccion"] = contador
-        contador += 1
-
-    # Servicios
-    for s in servicios:
-        s["seccion"] = contador
-        contador += 1
-
-    # Condiciones
-    secciones["condiciones"] = contador
-
-    return {
-        "cabecera": cabecera,
-        "suministros": suministros,
-        "servicios": servicios,
-        "totales": {
-            "suministros": total_suministros,
-            "servicios": total_servicios,
-            "descuento": descuento,
-            "total_cotizacion": total_final,
-            "moneda": cabecera["moneda"],
-            "moneda_simbolo": cabecera["moneda_simbolo"],
-            "incluye_igv": cabecera["incluye_igv"],
-        },
-        "condiciones_generales": {
-            "condiciones": cotizacion.acu_e,
-        },
-        "indice": indice,
-        "secciones": secciones,
-    }
 
 from pathlib import Path
 from django.conf import settings
@@ -2640,163 +2576,19 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 from weasyprint import HTML
 
-def cotizacion_pdf(request, num_reg):
-    context = build_cotizacion_pdf_context(num_reg)
-
-    if not context:
-        return HttpResponse("Cotización no existe", status=404)
-
-    # 📌 Definimos la carpeta base de assets para evitar repetir código
-    assets_dir = Path(settings.BASE_DIR) / "frontend" / "src" / "assets"
-
-    # 📌 Rutas de Imágenes Principales
-    context["logo_path"] = (assets_dir / "logo.png").as_uri()
-    context["header_path"] = (assets_dir / "encabezado-reporte.png").as_uri()
-
-    # 📌 Rutas del Nuevo Pie de Página (Basado en tus archivos)
-    context["footer_bg_path"] = (assets_dir / "pie pagina-reporte.png").as_uri()
-    context["sgs_path"] = (assets_dir / "sgs.png").as_uri()
-    context["homologada_path"] = (assets_dir / "empresa homologada.png").as_uri()
-    context["mega_path"] = (assets_dir / "mega.png").as_uri()
-    context["correo_path"] = (assets_dir / "correo cormercial.png").as_uri()
-
-    html_string = render_to_string("reportes/cotizacion_pdf.html", context)
-
-    # Generación del PDF
-    html = HTML(
-        string=html_string, 
-        base_url=settings.BASE_DIR.as_uri()
-    )
-
-    response = HttpResponse(content_type="application/pdf")
-    response["Content-Disposition"] = f'inline; filename="cotizacion_{num_reg}.pdf"'
-
-    # Nota: Usamos optimización de imágenes para evitar que el PDF pese demasiado
-    html.write_pdf(response)
-    return response
-
-@api_view(["DELETE"])
-@permission_classes([IsAuthenticated])
-def eliminar_cotizacion(request, num_reg):
-    """
-    Elimina una cotización y todos sus registros relacionados.
-    """
-    try:
-        with transaction.atomic():
-
-            # 1. Verificar existencia de la cotización
-            cotizacion = DashboardCotizacion.objects.filter(
-                num_reg=num_reg
-            ).first()
-
-            if not cotizacion:
-                return Response(
-                    {"error": "La cotización no existe"},
-                    status=404
-                )
-
-            # 2. Eliminar dependencias
-            CotiSuministros.objects.filter(num_reg=num_reg).delete()
-            CotiServicios.objects.filter(num_reg=num_reg).delete()
-            CotiMensajes.objects.filter(num_reg=num_reg).delete()
-            CotiSeguimiento.objects.filter(num_reg=num_reg).delete()
-
-            # 3. Eliminar cotización principal
-            cotizacion.delete()
-
-        return Response(
-            {"message": "Cotización eliminada correctamente"},
-            status=200
-        )
-
-    except Exception as e:
-        return Response(
-            {"error": str(e)},
-            status=500
-        )
-
-@api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-def enviar_cotizacion_aprobacion(request, num_reg):
-    """
-    Cambia el estado de envio de la cotización:
-    0 -> 1
-    1 -> 2
-    """
-    try:
-        with transaction.atomic():
-            cotizacion = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-
-            if not cotizacion:
-                return Response({"error": "La cotización no existe"}, status=404)
-
-            # Cambiar valor de envio según el caso
-            if cotizacion.envio == 0:
-                cotizacion.envio = 1
-            elif cotizacion.envio == 1:
-                cotizacion.envio = 2
-            else:
-                return Response({"error": f"Estado de envio inválido: {cotizacion.envio}"}, status=400)
-
-            cotizacion.save()
-
-        return Response({"message": "Cotización enviada a aprobación correctamente"}, status=200)
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
-
-@api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-def cerrar_cotizacion(request, num_reg):
-    """
-    Cierra la cotización:
-    envio: 2 -> 3
-    """
-    try:
-        with transaction.atomic():
-            cotizacion = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-
-            if not cotizacion:
-                return Response(
-                    {"error": "La cotización no existe"},
-                    status=404
-                )
-
-            if cotizacion.envio != 2:
-                return Response(
-                    {
-                        "error": "La cotización no está lista para cerrarse",
-                        "estado_actual": cotizacion.envio
-                    },
-                    status=400
-                )
-
-            cotizacion.envio = 3
-            cotizacion.save(update_fields=["envio"])
-
-        return Response(
-            {"message": "Cotización cerrada correctamente"},
-            status=200
-        )
-
-    except Exception as e:
-        return Response(
-            {"error": str(e)},
-            status=500
-        )
 
 @csrf_exempt
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
 def asignar_regus(request, num_reg):
     """
-    Actualiza los campos 'regus' y 'referencia' de una cotización según num_reg.
+    Actualiza los campos 'regus' y 'referencia' de una cotizaciÃ³n segÃºn num_reg.
     """
     try:
         cotizacion = DashboardCotizacion.objects.get(num_reg=num_reg)
     except DashboardCotizacion.DoesNotExist:
         return Response(
-            {"detail": "Cotización no encontrada"},
+            {"detail": "CotizaciÃ³n no encontrada"},
             status=404
         )
 
@@ -2824,7 +2616,7 @@ def asignar_regus(request, num_reg):
 
     return Response(
         {
-            "message": "Cotización actualizada correctamente",
+            "message": "CotizaciÃ³n actualizada correctamente",
             "num_reg": cotizacion.num_reg,
             "regus": cotizacion.regus,
             "referencia": cotizacion.referencia,
@@ -2832,304 +2624,20 @@ def asignar_regus(request, num_reg):
         status=200
     )
 
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def crear_nueva_version_cotizacion(request, num_reg):
-    try:
-        with transaction.atomic():
 
-            print("🔹 Buscando cotización base")
-            base = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-            if not base:
-                return Response({"error": "La cotización no existe"}, status=404)
-
-            # 🔒 SOLO SI TIENE COTIN
-            if not base.numero:
-                return Response(
-                    {
-                        "error": "La cotización aún no tiene COTIN. No se puede generar una nueva versión."
-                    },
-                    status=400,
-                )
-
-            print("🔹 Generando nuevo cotin")
-            nuevo_cotin = siguiente_version(base.numero)
-
-            print("🔹 Creando nueva cotización")
-            nueva_cotizacion = deepcopy(base)
-            nueva_cotizacion.pk = None
-            nueva_cotizacion.num_reg = None
-            nueva_cotizacion.numero = nuevo_cotin
-            nueva_cotizacion.estado_codigo = 2
-            nueva_cotizacion.envio = 0
-            nueva_cotizacion.save()
-
-            # =====================================================
-            # 🔹 SUMINISTROS (GRUPOS + ÍTEMS)
-            # =====================================================
-            print("🔹 Replicando SUMINISTROS")
-
-            suministros_origen = list(
-                CotiSuministros.objects.filter(num_reg=num_reg).order_by("num")
-            )
-
-            ultimo_num = (
-                CotiSuministros.objects.aggregate(max_num=Max("num"))["max_num"] or 0
-            )
-
-            nuevos = []
-            contador = ultimo_num + 1
-
-            for s in suministros_origen:
-                nuevo = deepcopy(s)
-                nuevo.pk = None
-                nuevo.num = contador
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevos.append(nuevo)
-                contador += 1
-
-            CotiSuministros.objects.bulk_create(nuevos)
-
-            # =====================================================
-            # 🔹 SERVICIOS (GRUPOS + ÍTEMS)
-            # =====================================================
-            print("🔹 Replicando SERVICIOS")
-
-            servicios_origen = list(
-                CotiServicios.objects.filter(num_reg=num_reg).order_by("num")
-            )
-
-            ultimo_num_serv = (
-                CotiServicios.objects.aggregate(max_num=Max("num"))["max_num"] or 0
-            )
-
-            nuevos_serv = []
-            contador = ultimo_num_serv + 1
-
-            for s in servicios_origen:
-                nuevo = deepcopy(s)
-                nuevo.pk = None
-                nuevo.num = contador
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevos_serv.append(nuevo)
-                contador += 1
-
-            CotiServicios.objects.bulk_create(nuevos_serv)
-
-            # =====================================================
-            # 🔹 MENSAJES
-            # =====================================================
-            print("🔹 Replicando MENSAJES")
-
-            mensajes_origen = list(
-                CotiMensajes.objects.filter(num_reg=num_reg).order_by("dat")
-            )
-
-            offset = 0
-            nuevos_mensajes = []
-
-            for m in mensajes_origen:
-                nuevo = deepcopy(m)
-                nuevo.pk = None
-                nuevo.dat = now() + timedelta(milliseconds=offset)
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevos_mensajes.append(nuevo)
-                offset += 1
-
-            CotiMensajes.objects.bulk_create(nuevos_mensajes)
-
-            # =====================================================
-            # 🔹 SEGUIMIENTO
-            # =====================================================
-            print("🔹 Replicando SEGUIMIENTO")
-
-            seguimiento_origen = list(
-                CotiSeguimiento.objects.filter(num_reg=num_reg).order_by("dat")
-            )
-
-            offset = 0
-            nuevos_seg = []
-
-            for seg in seguimiento_origen:
-                nuevo = deepcopy(seg)
-                nuevo.pk = None
-                nuevo.dat = now() + timedelta(milliseconds=offset)
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevo.num = seg.num
-                nuevos_seg.append(nuevo)
-                offset += 1
-
-            CotiSeguimiento.objects.bulk_create(nuevos_seg)
-
-        return Response(
-            {
-                "message": "Nueva versión creada correctamente",
-                "num_reg": nueva_cotizacion.num_reg,
-                "cotin": nueva_cotizacion.numero,
-                "num_reg_origen": base.num_reg,  # 👈 útil para invalidaciones finas
-            },
-            status=201,
-        )
-
-    except Exception as e:
-        print("❌ ERROR REAL:", e)
-        raise e
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def generar_copiar_cotizacion(request, num_reg):
-    """
-    Crea una copia de la cotización indicada sin asignarle COTIN (numero).
-    La copia se genera con estado pendiente de envío (estado_codigo=2).
-    """
-    try:
-        with transaction.atomic():
-
-            print("🔹 Buscando cotización base")
-            base = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-            if not base:
-                return Response({"error": "La cotización no existe"}, status=404)
-
-            print("🔹 Creando copia sin COTIN")
-            nueva_cotizacion = deepcopy(base)
-            nueva_cotizacion.pk = None
-            nueva_cotizacion.num_reg = None
-            nueva_cotizacion.numero = None          # ❌ No asignamos COTIN
-            nueva_cotizacion.estado_codigo = 2      # Pendiente de envío
-            nueva_cotizacion.envio = 0
-
-            # =========================
-            # 🔹 REFERENCIA (MARCAR COPIA)
-            # =========================
-            if base.referencia:
-                nueva_cotizacion.referencia = f"{base.referencia} - COPIA"
-            else:
-                nueva_cotizacion.referencia = f"COPIA DE COTIZACIÓN {num_reg}"
-
-            nueva_cotizacion.save()
-
-            # =====================================================
-            # 🔹 SUMINISTROS (GRUPOS + ÍTEMS)
-            # =====================================================
-            print("🔹 Replicando SUMINISTROS")
-
-            suministros_origen = list(
-                CotiSuministros.objects.filter(num_reg=num_reg).order_by("num")
-            )
-
-            ultimo_num = (
-                CotiSuministros.objects.aggregate(max_num=Max("num"))["max_num"] or 0
-            )
-
-            nuevos = []
-            contador = ultimo_num + 1
-
-            for s in suministros_origen:
-                nuevo = deepcopy(s)
-                nuevo.pk = None
-                nuevo.num = contador
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevos.append(nuevo)
-                contador += 1
-
-            CotiSuministros.objects.bulk_create(nuevos)
-
-            # =====================================================
-            # 🔹 SERVICIOS (GRUPOS + ÍTEMS)
-            # =====================================================
-            print("🔹 Replicando SERVICIOS")
-
-            servicios_origen = list(
-                CotiServicios.objects.filter(num_reg=num_reg).order_by("num")
-            )
-
-            ultimo_num_serv = (
-                CotiServicios.objects.aggregate(max_num=Max("num"))["max_num"] or 0
-            )
-
-            nuevos_serv = []
-            contador = ultimo_num_serv + 1
-
-            for s in servicios_origen:
-                nuevo = deepcopy(s)
-                nuevo.pk = None
-                nuevo.num = contador
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevos_serv.append(nuevo)
-                contador += 1
-
-            CotiServicios.objects.bulk_create(nuevos_serv)
-
-            # =====================================================
-            # 🔹 MENSAJES
-            # =====================================================
-            print("🔹 Replicando MENSAJES")
-
-            mensajes_origen = list(
-                CotiMensajes.objects.filter(num_reg=num_reg).order_by("dat")
-            )
-
-            offset = 0
-            nuevos_mensajes = []
-
-            for m in mensajes_origen:
-                nuevo = deepcopy(m)
-                nuevo.pk = None
-                nuevo.dat = now() + timedelta(milliseconds=offset)
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevos_mensajes.append(nuevo)
-                offset += 1
-
-            CotiMensajes.objects.bulk_create(nuevos_mensajes)
-
-            # =====================================================
-            # 🔹 SEGUIMIENTO
-            # =====================================================
-            print("🔹 Replicando SEGUIMIENTO")
-
-            seguimiento_origen = list(
-                CotiSeguimiento.objects.filter(num_reg=num_reg).order_by("dat")
-            )
-
-            offset = 0
-            nuevos_seg = []
-
-            for seg in seguimiento_origen:
-                nuevo = deepcopy(seg)
-                nuevo.pk = None
-                nuevo.dat = now() + timedelta(milliseconds=offset)
-                nuevo.num_reg = nueva_cotizacion.num_reg
-                nuevo.num = seg.num
-                nuevos_seg.append(nuevo)
-                offset += 1
-
-            CotiSeguimiento.objects.bulk_create(nuevos_seg)
-
-        return Response(
-            {
-                "message": "Copia de cotización creada correctamente sin COTIN",
-                "num_reg": nueva_cotizacion.num_reg,
-                "cotin": nueva_cotizacion.numero,  # será None
-            },
-            status=201,
-        )
-
-    except Exception as e:
-        print("❌ ERROR REAL:", e)
-        raise e
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def generar_codigo_view(request, numero):
     """
-    Retorna el código (cotin) asociado a la cotización.
-    Si la cotización no existe → 404
+    Retorna el cÃ³digo (cotin) asociado a la cotizaciÃ³n.
+    Si la cotizaciÃ³n no existe â†’ 404
     """
     try:
         cot = DashboardCotizacion.objects.filter(numero=numero).first()
         if not cot:
             return Response(
-                {"error": f"No se encontró la cotización #{numero}"},
+                {"error": f"No se encontrÃ³ la cotizaciÃ³n #{numero}"},
                 status=404
             )
 
@@ -3143,95 +2651,6 @@ def generar_codigo_view(request, numero):
         print("Error en generar_codigo_view:", traceback.format_exc())
         return Response({"error": str(e)}, status=500)
 
-@api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-def cambiar_estado_cotizacion(request, num_reg):
-    """
-    Cambia el estado de una cotización al estado indicado.
-    Ejemplo: 1 → 3, 3 → 2, etc.
-    """
-    try:
-        estado_codigo = request.data.get("estado_codigo")
-
-        if estado_codigo is None:
-            return Response(
-                {"error": "Debe enviar estado_codigo"},
-                status=400
-            )
-
-        with transaction.atomic():
-            cotizacion = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-
-            if not cotizacion:
-                return Response(
-                    {"error": "La cotización no existe"},
-                    status=404
-                )
-
-            # Validar que el estado exista y esté activo
-            estado = vc_tab_estado.objects.filter(
-                codigo=estado_codigo,
-                activo=True
-            ).first()
-
-            if not estado:
-                return Response(
-                    {"error": "Estado inválido o inactivo"},
-                    status=400
-                )
-
-            cotizacion.estado_codigo = estado.codigo
-            cotizacion.save()
-
-        return Response(
-            {"message": "Estado de la cotización actualizado correctamente"},
-            status=200
-        )
-
-    except Exception as e:
-        return Response(
-            {"error": str(e)},
-            status=500
-        )
-
-@api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-def retornar_cotizacion(request, num_reg):
-    """
-    Retorna una cotización a estado editable.
-    Acción: envio = 0
-    """
-
-    try:
-        with transaction.atomic():
-            cotizacion = DashboardCotizacion.objects.filter(num_reg=num_reg).first()
-
-            if not cotizacion:
-                return Response(
-                    {"error": "La cotización no existe"},
-                    status=404
-                )
-
-            # 🔒 Opcional: validar que esté enviada
-            if cotizacion.envio == 0:
-                return Response(
-                    {"message": "La cotización ya está en estado editable"},
-                    status=200
-                )
-
-            cotizacion.envio = 0
-            cotizacion.save(update_fields=["envio"])
-
-        return Response(
-            {"message": "La cotización fue retornada correctamente"},
-            status=200
-        )
-
-    except Exception as e:
-        return Response(
-            {"error": str(e)},
-            status=500
-        )
 
 ##================##
 ## DATOS DE BD_VC ##
@@ -3248,15 +2667,224 @@ def lista_areas(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def lista_clientes(request):
-    q = request.GET.get("q", "")
-    clientes = vc_tab_clientes.objects.filter(activo=True)
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "1") or "").strip()  # default = activos
+    tipo_param = (request.GET.get("tipo", "") or "").strip()
+
+    clientes = vc_tab_clientes.objects.all()
+
+    # Filtro activo/inactivo:
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            clientes = clientes.filter(activo=True)
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            clientes = clientes.filter(activo=False)
+
+    # Filtro por tipo:
+    if tipo_param:
+        clientes = clientes.filter(tipo=tipo_param)
+
     if q:
         clientes = clientes.filter(
-            Q(nombre__icontains=q) | Q(ruc__icontains=q)
+            Q(codigo__icontains=q)
+            | Q(nombre__icontains=q)
+            | Q(iniciales__icontains=q)
+            | Q(ruc__icontains=q)
+            | Q(tipo__icontains=q)
+            | Q(pro__icontains=q)
         )
+
     clientes = clientes.order_by("nombre")[:100]
     serializer = ClientesSerializer(clientes, many=True)
     return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def crear_cliente(request):
+    data = request.data.copy()
+    
+    # Autogenerar correlativo si no envian codigo
+    if not data.get('codigo'):
+        max_cod = 0
+        todos = vc_tab_clientes.objects.values_list('codigo', flat=True)
+        for c in todos:
+            if c and str(c).isdigit():
+                val = int(c)
+                if val > max_cod:
+                    max_cod = val
+        data['codigo'] = str(max_cod + 1).zfill(5)
+
+    serializer = ClientesSerializer(data=data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticated])
+def actualizar_cliente(request, codigo):
+    try:
+        cliente = vc_tab_clientes.objects.get(codigo=codigo)
+    except vc_tab_clientes.DoesNotExist:
+        return Response({"detail": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
+    
+    serializer = ClientesSerializer(cliente, data=request.data, partial=(request.method == "PATCH"))
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def eliminar_cliente(request, codigo):
+    try:
+        cliente = vc_tab_clientes.objects.get(codigo=codigo)
+        cliente.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    except vc_tab_clientes.DoesNotExist:
+        return Response({"detail": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_proveedores(request):
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "todos") or "").strip()
+    tipo_param = (request.GET.get("tipo", "") or "").strip()
+
+    clientes = vc_tab_clientes.objects.all()
+
+    # Filtros igual que lista_clientes
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            clientes = clientes.filter(activo=True)
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            clientes = clientes.filter(activo=False)
+
+    if tipo_param:
+        clientes = clientes.filter(tipo=tipo_param)
+
+    if q:
+        clientes = clientes.filter(
+            Q(codigo__icontains=q)
+            | Q(nombre__icontains=q)
+            | Q(iniciales__icontains=q)
+            | Q(ruc__icontains=q)
+            | Q(tipo__icontains=q)
+            | Q(pro__icontains=q)
+        )
+
+    clientes = clientes.order_by("nombre")
+
+    if not clientes.exists():
+        return Response({"detail": "No hay datos para exportar con los filtros seleccionados."}, status=status.HTTP_400_BAD_REQUEST)
+
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from django.http import HttpResponse
+    from django.utils.timezone import localtime, now
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Reporte Proveedores"
+
+    # --- CABECERA CORPORATIVA ---
+    ws.merge_cells('A1:B1')
+    ws['A1'] = "VC CORPORATION"
+    ws['A1'].font = Font(name='Arial Black', size=16, color="FF35A39C")
+    ws['A1'].alignment = Alignment(horizontal='left')
+
+    ws['A2'] = "OPTIMIZACIÓN Y AUTOMATIZACIÓN DE PROCESOS"
+    ws['A2'].font = Font(name='Arial', size=8, bold=True, color="666666")
+
+    ws.merge_cells('C1:F1')
+    ws['C1'] = "REPORTE DE PROVEEDORES"
+    ws['C1'].font = Font(name='Arial', size=14, bold=True)
+    ws['C1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    # Fecha de generación
+    current_time = localtime(now())
+    ws['G2'] = f"Fecha: {current_time.strftime('%d/%m/%Y %H:%M')}"
+    ws['G2'].font = Font(name='Arial', size=9, italic=True)
+    ws['G2'].alignment = Alignment(horizontal='right')
+
+    # --- ESTILOS DE TABLA ---
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    header_font = Font(name='Arial', bold=True, color="FFFFFF")
+    even_row_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin', color="CBD5E1"), 
+        right=Side(style='thin', color="CBD5E1"), 
+        top=Side(style='thin', color="CBD5E1"), 
+        bottom=Side(style='thin', color="CBD5E1")
+    )
+
+    # HEADERS en Fila 4
+    headers = ["CÓDIGO", "NOMBRE / RAZÓN SOCIAL", "INICIALES", "RUC", "TIPO", "ACTIVIDAD", "ESTADO"]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.border = thin_border
+
+    # Anchos de columna
+    column_widths = [15, 45, 12, 15, 12, 35, 12]
+    for i, width in enumerate(column_widths, 1):
+        ws.column_dimensions[ws.cell(row=4, column=i).column_letter].width = width
+
+    # --- DATOS ---
+    current_row = 5
+    for r in clientes:
+        tipo_desc = r.tipo
+        if r.tipo == "0": tipo_desc = "Cliente"
+        elif r.tipo == "01": tipo_desc = "Cliente/Prov"
+        elif r.tipo == "1": tipo_desc = "Proveedor"
+
+        row_data = [
+            r.codigo,
+            r.nombre.upper(),
+            r.iniciales or "",
+            r.ruc or "",
+            tipo_desc,
+            r.pro or "",
+            "ACTIVO" if r.activo else "INACTIVO"
+        ]
+        
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=current_row, column=col_num)
+            cell.value = value
+            cell.border = thin_border
+            cell.font = Font(name='Arial', size=9)
+            
+            # Alineación específica
+            if col_num in [2, 6]:  # Nombre, Actividad
+                cell.alignment = left_align
+            else:
+                cell.alignment = center_align
+            
+            # Color de fila alterna
+            if current_row % 2 == 0:
+                cell.fill = even_row_fill
+        
+        current_row += 1
+
+    # --- RESPUESTA ---
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    
+    filename = f"Reporte_Proveedores_{current_time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    response = HttpResponse(
+        excel_buffer.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 # vc_tab_estado
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -3416,847 +3044,10 @@ def listar_usuario(request):
 ##==========##
 ## REPORTES ##
 ##==========##
-@csrf_exempt
-def reporte_cotizaciones_dashboard_html(request):
-    # =========================
-    # Filtros
-    # =========================
-    anno    = request.GET.get("anno")
-    mes     = request.GET.get("mes")
-    estado  = request.GET.get("estado")
-    cliente = request.GET.get("cliente")
-    area    = request.GET.get("area")
-    campo   = request.GET.get("campo")   # filtro general
-    valor   = request.GET.get("valor")   # valor buscado
 
-    qs = DashboardCotizacion.objects.all()
-
-    if anno:
-        qs = qs.filter(anno=anno)
-    if mes and mes != "%":
-        qs = qs.filter(mes=mes)
-    if estado and estado != "%":
-        qs = qs.filter(estado_codigo=estado)
-    if cliente and cliente != "%":
-        qs = qs.filter(cliente_codigo=cliente)
-    if area and area != "%":
-        qs = qs.filter(area_codigo=area)
-
-    # Filtro general dinámico
-    if campo and valor:
-        filtro_dinamico = {f"{campo}__icontains": valor}
-        qs = qs.filter(**filtro_dinamico)
-
-    # =========================
-    # Agrupación por área
-    # =========================
-    data = (
-        qs.values("area_codigo")
-        .annotate(
-            cantidad=Count("num_reg"),
-            importe=Sum("tot_c")
-        )
-        .order_by("area_codigo")
-    )
-
-    AREA_MAP = {
-        "1": "Industria",
-        "2": "Minería",
-        "3": "Mantenimiento",
-        "4": "Petroquímica",
-        "8": "Seguridad de Maquinaria",
-    }
-
-    resultados = []
-    total_general = Decimal("0.00")
-
-    for row in data:
-        importe = row["importe"] or Decimal("0.00")
-        total_general += importe
-        resultados.append({
-            "area": AREA_MAP.get(row["area_codigo"], "Sin Área"),
-            "cantidad": row["cantidad"],
-            "importe": round(importe, 2),
-        })
-
-    context = {
-        "resultados": resultados,
-        "total_general": round(total_general, 2),
-        "filtros": {
-            "anno": anno,
-            "mes": mes,
-            "estado": estado,
-            "cliente": cliente,
-            "area": area,
-            "campo": campo,
-            "valor": valor,
-        }
-    }
-
-    return render(request, "reportes/reporte_cotizaciones_dashboard.html", context)
-
-@csrf_exempt
-def reporte_suministros_html(request, num_reg):
-
-    suministros = (
-        CotiSuministros.objects
-        .filter(num_reg=num_reg)
-        .order_by("cog", "nig", "num")
-    )
-
-    if not suministros.exists():
-        return HttpResponse(
-            "No existen suministros para esta cotización",
-            status=404
-        )
-
-    grupos = OrderedDict()
-
-    # =========================
-    # UTIL: PARSE COG
-    # =========================
-    def parse_cog(cog):
-        cog = str(cog).zfill(4)
-        tipo_code = cog[2:]  # 01, 02
-
-        return {
-            "01": "EQUIPOS",
-            "02": "MATERIALES",
-        }.get(tipo_code, "OTROS")
-
-    # =========================
-    # AGRUPAR POR COG
-    # =========================
-    for row in suministros:
-
-        # Crear grupo si no existe
-        if row.cog not in grupos:
-            grupos[row.cog] = {
-                "tipo": parse_cog(row.cog),  # EQUIPOS / MATERIALES
-                "titulo": "",                # nog (ej: M1, M2)
-                "items": []
-            }
-
-        # CABECERA (nig = 0)
-        if row.nig == 0:
-            grupos[row.cog]["titulo"] = row.nog or ""
-
-        # ITEMS (nig > 0)
-        elif row.nig > 0:
-            utilidad = (row.tou or Decimal("0")) * (row.can or Decimal("0"))
-
-            grupos[row.cog]["items"].append({
-                "item": len(grupos[row.cog]["items"]) + 1,
-                "cod": row.cod,
-                "des": row.des,
-                "pro": row.pro,
-                "can": round(row.can or 0, 2),
-                "val": round(row.val or 0, 2),
-                "tot": round(row.tot or 0, 2),
-                "puc": round(row.puc or 0, 2),
-                "toc": round(row.toc or 0, 2),
-                "utilidad": round(utilidad, 2),
-            })
-
-    context = {
-        "num_reg": num_reg,
-        "grupos": grupos
-    }
-
-    return render(
-        request,
-        "reportes/reporte_suministros.html",
-        context
-    )
-
-
-@csrf_exempt
-def reporte_suministros_excel(request, num_reg):
-    suministros = CotiSuministros.objects.filter(num_reg=num_reg).order_by("cog", "nig", "num")
-    if not suministros.exists():
-        return HttpResponse("No existen suministros para esta cotización", status=404)
-
-    grupos = OrderedDict()
-
-    # Función para parsear cog
-    def parse_cog(cog):
-        cog = str(cog).zfill(4)
-        contador = cog[:2]
-        tipo_code = cog[2:]
-        tipo_map = {
-            "01": "EQUIPOS",
-            "02": "MATERIALES",
-        }
-        tipo = tipo_map.get(tipo_code, "OTROS")
-        subtitulo = f"M{int(contador)}"
-        return tipo, subtitulo
-
-    # Agrupar por COG
-    for row in suministros:
-        if row.cog not in grupos:
-            tipo, subtitulo = parse_cog(row.cog)
-            grupos[row.cog] = {
-                "tipo": tipo,
-                "subtitulo": subtitulo,
-                "titulo": "",
-                "items": []
-            }
-
-        # Cabecera (nig = 0)
-        if row.nig == 0:
-            grupos[row.cog]["titulo"] = row.nog or ""
-
-        # Items (nig > 0)
-        elif row.nig > 0:
-            utilidad = (row.tou or Decimal("0")) * (row.can or Decimal("0"))
-            grupos[row.cog]["items"].append({
-                "item": len(grupos[row.cog]["items"]) + 1,
-                "cod": row.cod,
-                "des": row.des,
-                "pro": row.pro,
-                "can": round(row.can or 0, 2),
-                "val": round(row.val or 0, 2),
-                "tot": round(row.tot or 0, 2),
-                "puc": round(row.puc or 0, 2),
-                "toc": round(row.toc or 0, 2),
-                "utilidad": round(utilidad, 2),
-            })
-
-    # Crear workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = f"Suministros_{num_reg}"
-
-    # Escribir tabla similar al HTML
-    row_index = 1
-    for grupo in grupos.values():
-        # Título de grupo
-        ws.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=10)
-        ws.cell(row=row_index, column=1, value=f"{grupo['tipo']} - {grupo['titulo']}")
-        row_index += 1
-
-        # Cabecera
-        headers_1 = ["Ítems", "Código", "Descripción", "Proveedor", "Cant", "Cliente Final", "", "Precio Final", "", "Utilidad"]
-        headers_2 = ["", "", "", "", "", "Prec. Unit.", "Total", "Prec. Unit.", "Total", ""]
-        ws.append(headers_1)
-        ws.append(headers_2)
-        row_index += 2
-
-        # Items
-        for it in grupo["items"]:
-            ws.append([
-                it["item"],
-                it["cod"],
-                it["des"],
-                it["pro"],
-                it["can"],
-                it["val"],
-                it["tot"],
-                it["puc"],
-                it["toc"],
-                it["utilidad"]
-            ])
-            row_index += 1
-
-        row_index += 1  # espacio entre grupos
-
-    # Respuesta Excel
-    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = f'attachment; filename=Suministros_{num_reg}.xlsx'
-    wb.save(response)
-    return response
-
-@csrf_exempt
-def reporte_servicios_html(request, num_reg):
-    servicios = (
-        CotiServicios.objects
-        .filter(num_reg=num_reg)
-        .order_by("cog", "nig", "num")
-    )
-
-    if not servicios.exists():
-        return HttpResponse(
-            "No existen servicios para esta cotización",
-            status=404
-        )
-
-    grupos = OrderedDict()
-
-    # =========================
-    # AGRUPAR POR GRUPO Y SUBGRUPO
-    # =========================
-    for row in servicios:
-        cog_key = str(row.cog).zfill(5)  # ej: 01041
-
-        # Grupo principal (nig=0)
-        if row.nig == 0:
-            grupos[cog_key] = {
-                "titulo": row.nog or "",
-                "subgrupos": OrderedDict(),
-                "total_val": Decimal("0.00"),
-                "total_tot": Decimal("0.00"),
-                "total_puc": Decimal("0.00"),
-                "total_toc": Decimal("0.00"),
-                "total_utilidad": Decimal("0.00"),
-            }
-
-        # Subgrupo (nig=1)
-        elif row.nig == 1:
-            # 🔥 Obtener tipo desde los dígitos centrales del COG (**04*, **05*, **06*)
-            try:
-                cog_str = str(row.cog).zfill(5)
-                tipo_code = cog_str[2:4]  # ej: 01041 → "04"
-            except:
-                tipo_code = ""
-
-            tipo_map = {
-                "04": "MANO DE OBRA",
-                "05": "GASTOS DE SERVICIOS",
-                "06": "OTROS",
-            }
-
-            tipo = tipo_map.get(tipo_code, "OTROS")
-
-            ultimo_grupo_key = list(grupos.keys())[-1]
-            grupos[ultimo_grupo_key]["subgrupos"][cog_key] = {
-                "tipo": tipo,
-                "items": [],
-                "sub_total_val": Decimal("0.00"),
-                "sub_total_tot": Decimal("0.00"),
-                "sub_total_puc": Decimal("0.00"),
-                "sub_total_toc": Decimal("0.00"),
-                "sub_total_utilidad": Decimal("0.00"),
-            }
-
-
-        # Items (nig=2)
-        elif row.nig == 2:
-            utilidad = (row.tou or Decimal("0")) * (row.tde or Decimal("0"))
-            ultimo_grupo_key = list(grupos.keys())[-1]
-            ultimo_subgrupo_key = list(grupos[ultimo_grupo_key]["subgrupos"].keys())[-1]
-
-            item_data = {
-                "item": len(grupos[ultimo_grupo_key]["subgrupos"][ultimo_subgrupo_key]["items"]) + 1,
-                "cod": row.cod,
-                "des": row.des,
-                "pro": row.pro,
-                "can": round(row.can or 0, 2),
-                "dias": round(row.tde or 0, 0),
-                "val": round(row.val or 0, 2),
-                "tot": round(row.tot or 0, 2),
-                "puc": round(row.puc or 0, 2),
-                "toc": round(row.toc or 0, 2),
-                "utilidad": round(utilidad, 2),
-            }
-
-            # Guardar item
-            grupos[ultimo_grupo_key]["subgrupos"][ultimo_subgrupo_key]["items"].append(item_data)
-
-            # Actualizar totales subgrupo
-            sg = grupos[ultimo_grupo_key]["subgrupos"][ultimo_subgrupo_key]
-            sg["sub_total_val"] += Decimal(str(item_data["val"]))
-            sg["sub_total_tot"] += Decimal(str(item_data["tot"]))
-            sg["sub_total_puc"] += Decimal(str(item_data["puc"]))
-            sg["sub_total_toc"] += Decimal(str(item_data["toc"]))
-            sg["sub_total_utilidad"] += Decimal(str(item_data["utilidad"]))
-
-            # Actualizar totales grupo
-            g = grupos[ultimo_grupo_key]
-            g["total_val"] += Decimal(str(item_data["val"]))
-            g["total_tot"] += Decimal(str(item_data["tot"]))
-            g["total_puc"] += Decimal(str(item_data["puc"]))
-            g["total_toc"] += Decimal(str(item_data["toc"]))
-            g["total_utilidad"] += Decimal(str(item_data["utilidad"]))
-
-
-    context = {
-        "num_reg": num_reg,
-        "grupos": grupos
-    }
-
-    return render(
-        request,
-        "reportes/reporte_servicios.html",
-        context
-    )
-
-from django.db import connection
-
-def sp_select_tabla_call(num_reg, area, tipo):
-    with connection.cursor() as cursor:
-        cursor.execute("CALL sp_select_tabla(%s, %s, %s)", [num_reg, area, tipo])
-        row = cursor.fetchone()
-        if row and row[0]:
-            try:
-                costo_str, ganancia_str = row[0].split("-")
-                return Decimal(costo_str), Decimal(ganancia_str)
-            except Exception:
-                # Si el formato no es el esperado
-                return Decimal("0"), Decimal("0")
-        # Si no hay fila o es None
-        return Decimal("0"), Decimal("0")
-
-def sumatoria_costos(queryset):
-
-    total_expr = ExpressionWrapper(
-        F("tot") * F("can"),
-        output_field=DecimalField(max_digits=14, decimal_places=2),
-    )
-
-    agg = queryset.aggregate(
-        costo=Coalesce(Sum("toc"), Decimal("0")),
-        total=Coalesce(Sum(total_expr), Decimal("0")),
-    )
-
-    ganancia = agg["total"] - agg["costo"]
-
-    return agg["costo"], ganancia
-
-@csrf_exempt
-def reporte_detallado_cotizacion(request, num_reg):
-    num_reg = str(num_reg)
-
-    # ==========================================================
-    # EQUIPOS (SU0 - nig=0 - cog 01%)
-    # ==========================================================
-    # 🔹 TOTAL VENTA
-    qs_total = CotiSuministros.objects.filter(
-        num_reg=num_reg,
-        cog__endswith="01",
-        nig=0,
-    )
-
-    total_expr = ExpressionWrapper(
-        F("tot") * F("can"),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
-    )
-
-    agg_total = qs_total.aggregate(
-        total=Coalesce(Sum(total_expr), Decimal("0"))
-    )
-
-    total_equipos = agg_total["total"]
-
-    # 🔹 COSTO
-    qs_costo = CotiSuministros.objects.filter(
-        num_reg=num_reg,
-        cog__endswith="01",
-        nig=1,
-    )
-
-    agg_costo = qs_costo.aggregate(
-        costo=Coalesce(Sum("toc"), Decimal("0"))
-    )
-
-    costo_equipos = agg_costo["costo"]
-
-    # 🔹 GANANCIA
-    ganancia_equipos = total_equipos - costo_equipos
-
-    # ==========================================================
-    # MATERIALES (02%)
-    # ==========================================================
-    # 🔹 TOTAL VENTA
-    qs_total = CotiSuministros.objects.filter(
-        num_reg=num_reg,
-        cog__endswith="02",
-        nig=0,
-    )
-
-    total_expr = ExpressionWrapper(
-        F("tot") * F("can"),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
-    )
-
-    agg_total = qs_total.aggregate(
-        total=Coalesce(Sum(total_expr), Decimal("0"))
-    )
-
-    total_materiales = agg_total["total"]
-
-    # 🔹 COSTO
-    qs_costo = CotiSuministros.objects.filter(
-        num_reg=num_reg,
-        cog__endswith="02",
-        nig=1,
-    )
-
-    agg_costo = qs_costo.aggregate(
-        costo=Coalesce(Sum("toc"), Decimal("0"))
-    )
-
-    costo_materiales = agg_costo["costo"]
-
-    # 🔹 GANANCIA
-    ganancia_materiales = total_materiales - costo_materiales
-
-    # =========
-    # AREA
-    # =========
-    from django.shortcuts import get_object_or_404
-
-    cotizacion = get_object_or_404(DashboardCotizacion, num_reg=num_reg)
-
-    area_cotizacion = str(cotizacion.area_codigo)
-
-    # ==========================================================
-    # HH PROPIOS (MOP → cog ???4)
-    # ==========================================================
-    qs = CotiServicios.objects.filter(
-        num_reg=num_reg,
-        cog__regex=r"^\d{3}4",
-        tpr=area_cotizacion,
-        nig=2,
-    )
-
-    total_hh_propios = qs.aggregate(
-        total=Coalesce(
-            Sum("tot"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["total"]
-
-    costo_hh_propios = qs.aggregate(
-        costo=Coalesce(
-            Sum("toc"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["costo"]
-
-    ganancia_hh_propios = total_hh_propios - costo_hh_propios
-
-    # ==========================================================
-    # HH OTRAS AREAS (MOI → cog ???6, área distinta)
-    # ==========================================================
-    qs_total_otras = CotiServicios.objects.filter(
-        num_reg=num_reg,
-        cog__regex=r"^\d{3}6",
-        nig=0,
-    )
-
-    total_expr_otras = ExpressionWrapper(
-        F("tot") * F("can"),
-        output_field=DecimalField(max_digits=18, decimal_places=2)
-    )
-
-    total_hh_otras = qs_total_otras.aggregate(
-        total=Coalesce(Sum(total_expr_otras), Decimal("0"))
-    )["total"]
-
-    qs_costo_otras = CotiServicios.objects.filter(
-        num_reg=num_reg,
-        cog__regex=r"^\d{3}6",
-        nig=1,
-    )
-
-    costo_hh_otras = qs_costo_otras.aggregate(
-        costo=Coalesce(Sum("toc"), Decimal("0"))
-    )["costo"]
-
-    ganancia_hh_otras = total_hh_otras - costo_hh_otras
-
-    # ==========================================================
-    # COSTO SERVICIOS (05%)
-    # ==========================================================
-    qs_base = CotiServicios.objects.filter(
-        num_reg=num_reg,
-        mov="05",
-    )
-
-    total_servicios = qs_base.filter(nig=1).aggregate(
-        total=Coalesce(
-            Sum("tot"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["total"]
-
-    costo_servicios = qs_base.filter(nig=2).aggregate(
-        costo=Coalesce(
-            Sum("toc"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["costo"]
-
-    ganancia_servicios = total_servicios - costo_servicios
-
-    # ==========================================================
-    # GASTOS ENTREGA (00%)
-    # ==========================================================
-    qs_base = CotiServicios.objects.filter(
-        num_reg=num_reg,
-        mov="00",
-    )
-
-    total_gastos_entrega = qs_base.filter(nig=1).aggregate(
-        total=Coalesce(
-            Sum("tot"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["total"]
-
-    costo_gastos_entrega = qs_base.filter(nig=2).aggregate(
-        costo=Coalesce(
-            Sum("toc"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["costo"]
-
-    ganancia_gastos_entrega = total_gastos_entrega - costo_gastos_entrega
-
-    # ==========================================================
-    # IMPREVISTOS (06%)
-    # ==========================================================
-    qs_base = CotiServicios.objects.filter(
-        num_reg=num_reg,
-        mov="06",
-    )
-
-    total_imprevistos = qs_base.filter(nig=1).aggregate(
-        total=Coalesce(
-            Sum("tot"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["total"]
-
-    costo_imprevistos = qs_base.filter(nig=2).aggregate(
-        costo=Coalesce(
-            Sum("toc"),
-            Decimal("0.00"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    )["costo"]
-
-    ganancia_imprevistos = total_imprevistos - costo_imprevistos
-
-    # ==========================================================
-    # DESCUENTO
-    # ==========================================================
-    cotizacion = DashboardCotizacion.objects.only("des_m").get(num_reg=num_reg)
-
-    costo_descuento = cotizacion.des_m or Decimal("0.00")
-
-    ganancia_descuento = Decimal("0.00")
-
-    total_descuento = -costo_descuento
-
-    # ==========================================================
-    # TABLA FINAL
-    # ==========================================================
-    datos = [
-        {"concepto": "EQUIPOS", "costo": costo_equipos, "ganancia": ganancia_equipos, "total": costo_equipos + ganancia_equipos},
-        {"concepto": "MATERIALES", "costo": costo_materiales, "ganancia": ganancia_materiales, "total": costo_materiales + ganancia_materiales},
-        {"concepto": "HH PROPIOS", "costo": costo_hh_propios, "ganancia": ganancia_hh_propios, "total": costo_hh_propios + ganancia_hh_propios},
-        {"concepto": "HH OTRAS AREAS", "costo": costo_hh_otras, "ganancia": ganancia_hh_otras, "total": costo_hh_otras + ganancia_hh_otras},
-        {"concepto": "COSTO SERVICIOS", "costo": costo_servicios, "ganancia": ganancia_servicios, "total": costo_servicios + ganancia_servicios},
-        {"concepto": "GASTOS ENTREGA", "costo": costo_gastos_entrega, "ganancia": ganancia_gastos_entrega, "total": costo_gastos_entrega + ganancia_gastos_entrega},
-        {"concepto": "IMPREVISTOS", "costo": costo_imprevistos, "ganancia": ganancia_imprevistos, "total": costo_imprevistos + ganancia_imprevistos},
-        {"concepto": "DESCUENTO", "costo": costo_descuento, "ganancia": ganancia_descuento, "total": total_descuento},
-    ]
-
-    total_final = sum(d["total"] for d in datos)
-
-    context = {
-        "num_reg": num_reg,
-        "titulo": "RESUMEN DE COSTO UTILIDAD",
-        "proyecto": num_reg,
-        "datos": datos,
-        "total_final": total_final,
-    }
-
-    return render(
-        request,
-        "reportes/reporte_detallado_cotizacion.html",
-        context,
-    )
-
-@csrf_exempt
-def reporte_detallado_excel(request, num_reg):
-    num_reg = str(num_reg)
-
-    # === CALCULOS (igual que tu versión) ===
-    qs_total = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="01", nig=0)
-    total_equipos = qs_total.aggregate(total=Coalesce(Sum(F("tot") * F("can")), Decimal("0")))["total"]
-    qs_costo = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="01", nig=1)
-    costo_equipos = qs_costo.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_equipos = total_equipos - costo_equipos
-
-    qs_total = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="02", nig=0)
-    total_materiales = qs_total.aggregate(total=Coalesce(Sum(F("tot") * F("can")), Decimal("0")))["total"]
-    qs_costo = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="02", nig=1)
-    costo_materiales = qs_costo.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_materiales = total_materiales - costo_materiales
-
-    cotizacion = DashboardCotizacion.objects.only("des_m", "area_codigo").get(num_reg=num_reg)
-    area_cotizacion = str(cotizacion.area_codigo)
-
-    qs = CotiServicios.objects.filter(num_reg=num_reg, cog__regex=r"^\d{3}4", tpr=area_cotizacion, nig=2)
-    total_hh_propios = qs.aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"]
-    costo_hh_propios = qs.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_hh_propios = total_hh_propios - costo_hh_propios
-
-    qs_total_otras = CotiServicios.objects.filter(num_reg=num_reg, cog__regex=r"^\d{3}6", nig=0)
-    total_hh_otras = qs_total_otras.aggregate(total=Coalesce(Sum(F("tot") * F("can")), Decimal("0")))["total"]
-    qs_costo_otras = CotiServicios.objects.filter(num_reg=num_reg, cog__regex=r"^\d{3}6", nig=1)
-    costo_hh_otras = qs_costo_otras.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_hh_otras = total_hh_otras - costo_hh_otras
-
-    qs_base = CotiServicios.objects.filter(num_reg=num_reg, mov="05")
-    total_servicios = qs_base.filter(nig=1).aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"]
-    costo_servicios = qs_base.filter(nig=2).aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_servicios = total_servicios - costo_servicios
-
-    qs_base = CotiServicios.objects.filter(num_reg=num_reg, mov="00")
-    total_gastos_entrega = qs_base.filter(nig=1).aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"]
-    costo_gastos_entrega = qs_base.filter(nig=2).aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_gastos_entrega = total_gastos_entrega - costo_gastos_entrega
-
-    qs_base = CotiServicios.objects.filter(num_reg=num_reg, mov="06")
-    total_imprevistos = qs_base.filter(nig=1).aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"]
-    costo_imprevistos = qs_base.filter(nig=2).aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_imprevistos = total_imprevistos - costo_imprevistos
-
-    costo_descuento = cotizacion.des_m or Decimal("0.00")
-    ganancia_descuento = Decimal("0.00")
-    total_descuento = -costo_descuento
-
-    datos = [
-        {"concepto": "EQUIPOS", "costo": costo_equipos, "ganancia": ganancia_equipos, "total": costo_equipos + ganancia_equipos},
-        {"concepto": "MATERIALES", "costo": costo_materiales, "ganancia": ganancia_materiales, "total": costo_materiales + ganancia_materiales},
-        {"concepto": "HH PROPIOS", "costo": costo_hh_propios, "ganancia": ganancia_hh_propios, "total": costo_hh_propios + ganancia_hh_propios},
-        {"concepto": "HH OTRAS AREAS", "costo": costo_hh_otras, "ganancia": ganancia_hh_otras, "total": costo_hh_otras + ganancia_hh_otras},
-        {"concepto": "COSTO SERVICIOS", "costo": costo_servicios, "ganancia": ganancia_servicios, "total": costo_servicios + ganancia_servicios},
-        {"concepto": "GASTOS ENTREGA", "costo": costo_gastos_entrega, "ganancia": ganancia_gastos_entrega, "total": costo_gastos_entrega + ganancia_gastos_entrega},
-        {"concepto": "IMPREVISTOS", "costo": costo_imprevistos, "ganancia": ganancia_imprevistos, "total": costo_imprevistos + ganancia_imprevistos},
-        {"concepto": "DESCUENTO", "costo": costo_descuento, "ganancia": ganancia_descuento, "total": total_descuento},
-    ]
-
-    # === GENERAR EXCEL CON DISEÑO ===
-    wb = Workbook()
-    ws = wb.active
-    ws.title = f"Detalle_{num_reg}"
-
-    # Cabecera
-    ws.append(["Concepto", "Costo", "Ganancia", "Total"])
-    header_fill = PatternFill("solid", fgColor="BDD7EE")
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="000000")
-        cell.alignment = Alignment(horizontal="center")
-        cell.fill = header_fill
-        cell.border = thin_border
-
-    # Filas de datos
-    for d in datos:
-        ws.append([d["concepto"], float(d["costo"]), float(d["ganancia"]), float(d["total"])])
-
-    for row in ws.iter_rows(min_row=2, min_col=1, max_col=4):
-        row[0].alignment = Alignment(horizontal="left")
-        for cell in row[1:]:
-            cell.alignment = Alignment(horizontal="right")
-        for cell in row:
-            cell.border = thin_border
-
-    # Autoajustar ancho de columnas
-    for col in ws.columns:
-        max_length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in col)
-        ws.column_dimensions[col[0].column_letter].width = max_length + 5
-
-    # Respuesta
-    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = f'attachment; filename=Detalle_{num_reg}.xlsx'
-    wb.save(response)
-    return response
-
-@csrf_exempt
-def reporte_resumen_cotizacion(request, num_reg):
-    num_reg = str(num_reg)
-
-    # --------------------------
-    # REUTILIZAR CÁLCULOS DETALLE
-    # --------------------------
-    # Equipos
-    qs_total = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="01", nig=0)
-    total_equipos = qs_total.aggregate(total=Coalesce(Sum(F("tot")*F("can")), Decimal("0")))["total"]
-    qs_costo = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="01", nig=1)
-    costo_equipos = qs_costo.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_equipos = total_equipos - costo_equipos
-
-    # Materiales
-    qs_total = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="02", nig=0)
-    total_materiales = qs_total.aggregate(total=Coalesce(Sum(F("tot")*F("can")), Decimal("0")))["total"]
-    qs_costo = CotiSuministros.objects.filter(num_reg=num_reg, cog__endswith="02", nig=1)
-    costo_materiales = qs_costo.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_materiales = total_materiales - costo_materiales
-
-    # Área
-    cotizacion = get_object_or_404(DashboardCotizacion, num_reg=num_reg)
-    area_cotizacion = str(cotizacion.area_codigo)
-
-    # HH propios
-    qs_hh_propios = CotiServicios.objects.filter(num_reg=num_reg, cog__regex=r"^\d{3}4", tpr=area_cotizacion, nig=2)
-    total_hh_propios = qs_hh_propios.aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"]
-    costo_hh_propios = qs_hh_propios.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_hh_propios = total_hh_propios - costo_hh_propios
-
-    # HH otras áreas
-    qs_hh_otras = CotiServicios.objects.filter(num_reg=num_reg, cog__regex=r"^\d{3}6", nig=1)
-    costo_hh_otras = qs_hh_otras.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_hh_otras = CotiServicios.objects.filter(num_reg=num_reg, cog__regex=r"^\d{3}6", nig=0).aggregate(total=Coalesce(Sum(F("tot")*F("can")), Decimal("0")))["total"] - costo_hh_otras
-
-    # Costo servicios
-    qs_servicios = CotiServicios.objects.filter(num_reg=num_reg, mov="05")
-    costo_servicios = qs_servicios.filter(nig=2).aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_servicios = qs_servicios.filter(nig=1).aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"] - costo_servicios
-
-    # Gastos entrega
-    qs_gastos_entrega = CotiServicios.objects.filter(num_reg=num_reg, mov="00", nig=2)
-    costo_gastos_entrega = qs_gastos_entrega.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_gastos_entrega = qs_gastos_entrega.aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"] - costo_gastos_entrega
-
-    # Imprevistos
-    qs_imprevistos = CotiServicios.objects.filter(num_reg=num_reg, mov="06", nig=1)
-    costo_imprevistos = qs_imprevistos.aggregate(costo=Coalesce(Sum("toc"), Decimal("0")))["costo"]
-    ganancia_imprevistos = qs_imprevistos.aggregate(total=Coalesce(Sum("tot"), Decimal("0")))["total"] - costo_imprevistos
-
-    # --------------------------
-    # RESUMEN
-    # --------------------------
-    resumen = [
-        {"concepto": "GASTOS", "importe": costo_equipos + costo_servicios},
-        {"concepto": "GANANCIAS", "importe": ganancia_equipos + ganancia_materiales + ganancia_hh_propios +
-                                         ganancia_hh_otras + ganancia_imprevistos + ganancia_gastos_entrega + ganancia_servicios},
-        {"concepto": "HH PROPIOS", "importe": costo_hh_propios},
-        {"concepto": "HH OTRAS AREAS", "importe": costo_hh_otras},
-        {"concepto": "IMPREVISTOS", "importe": costo_imprevistos},
-        {"concepto": "GASTOS ENTREGA", "importe": costo_gastos_entrega},
-    ]
-
-    total_final = sum(d["importe"] for d in resumen)
-
-    context = {
-        "num_reg": num_reg,
-        "titulo": "RESUMEN DE COSTO UTILIDAD",
-        "proyecto": num_reg,
-        "resumen": resumen,
-        "total_final": total_final,
-    }
-
-    return render(
-        request,
-        "reportes/reporte_resumen_cotizacion.html",  # Plantilla específica para este resumen
-        context,
-    )
 
 ##============##
-## AÑO ACTUAL ##
+## AÃ‘O ACTUAL ##
 ##============##
 @api_view(["GET"])
 def anno_actual(request):
@@ -4283,13 +3074,1132 @@ def html_to_text(html):
         li.insert_before("- ")
         li.append("\n")
 
-    # Convierte <p> en saltos de línea
+    # Convierte <p> en saltos de lÃ­nea
     for p in soup.find_all("p"):
         p.append("\n")
 
     text = soup.get_text()
     return text.strip()
 
+##===============##
+##   ALMACENES   ##
+##===============##
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def lista_almacenes(request):
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "todos") or "").strip()
 
+    almacenes = sis_alm_tab_almacen.objects.all()
+
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            almacenes = almacenes.filter(activo="1")
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            almacenes = almacenes.filter(activo="0")
+
+    if q:
+        almacenes = almacenes.filter(
+            Q(cod__icontains=q)
+            | Q(nom__icontains=q)
+            | Q(res__icontains=q)
+        )
+
+    almacenes = almacenes.order_by("cod")[:100]
+    serializer = AlmacenSerializer(almacenes, many=True)
+    return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def crear_almacen(request):
+    data = request.data.copy()
     
+    if not data.get('cod'):
+        max_cod = -1
+        todos = sis_alm_tab_almacen.objects.values_list('cod', flat=True)
+        for c in todos:
+            if c and str(c).isdigit():
+                val = int(c)
+                if val > max_cod:
+                    max_cod = val
+        data['cod'] = str(max_cod + 1).zfill(3)
+
+    serializer = AlmacenSerializer(data=data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticated])
+def actualizar_almacen(request, cod):
+    try:
+        almacen = sis_alm_tab_almacen.objects.get(cod=cod)
+    except sis_alm_tab_almacen.DoesNotExist:
+        return Response({"detail": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
+    
+    serializer = AlmacenSerializer(almacen, data=request.data, partial=(request.method == "PATCH"))
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_almacenes(request):
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "todos") or "").strip()
+
+    almacenes = sis_alm_tab_almacen.objects.all()
+
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            almacenes = almacenes.filter(activo="1")
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            almacenes = almacenes.filter(activo="0")
+
+    if q:
+        almacenes = almacenes.filter(
+            Q(cod__icontains=q)
+            | Q(nom__icontains=q)
+            | Q(res__icontains=q)
+        )
+
+    almacenes = almacenes.order_by("cod")
+
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from django.http import HttpResponse
+    from django.utils.timezone import localtime, now
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Almacenes"
+
+    # --- DISEÑO DE CABECERA (LOGO TIPO) ---
+    ws.merge_cells('A1:B1')
+    ws['A1'] = "VC CORPORATION"
+    ws['A1'].font = Font(name='Arial Black', size=16, color="FF35A39C")
+    ws['A1'].alignment = Alignment(horizontal='left')
+
+    ws['A2'] = "OPTIMIZACIÓN Y AUTOMATIZACIÓN DE PROCESOS"
+    ws['A2'].font = Font(name='Arial', size=8, bold=True, color="666666")
+
+    ws.merge_cells('C1:F1')
+    ws['C1'] = "REPORTE DE ALMACENES"
+    ws['C1'].font = Font(name='Arial', size=14, bold=True)
+    ws['C1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    # Fecha de generación
+    current_time = localtime(now())
+    ws['F2'] = f"Fecha: {current_time.strftime('%d/%m/%Y %H:%M')}"
+    ws['F2'].font = Font(name='Arial', size=9, italic=True)
+    ws['F2'].alignment = Alignment(horizontal='right')
+
+    # --- ENCABEZADOS DE TABLA ---
+    headers = ["CÓDIGO", "NOMBRE", "RESPONSABLE", "TELÉFONO", "DIRECCIÓN", "ESTADO"]
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    header_font = Font(name='Arial', bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(
+        left=Side(style='thin'), 
+        right=Side(style='thin'), 
+        top=Side(style='thin'), 
+        bottom=Side(style='thin')
+    )
+
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # --- DATOS ---
+    for row_num, a in enumerate(almacenes, 5):
+        estado_str = "ACTIVO" if str(a.activo) == "1" else "INACTIVO"
+        
+        row_data = [
+            a.cod or "",
+            (a.nom or "").upper(),
+            a.res or "",
+            a.tel or "",
+            a.dir or "",
+            estado_str
+        ]
+        
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num)
+            cell.value = value
+            cell.border = thin_border
+            cell.font = Font(name='Arial', size=10)
+            
+            if col_num in [1, 4, 6]: 
+                cell.alignment = Alignment(horizontal='center')
+            else:
+                cell.alignment = Alignment(horizontal='left')
+
+    # --- AJUSTE DE ANCHO DE COLUMNAS ---
+    column_widths = [10, 40, 25, 15, 40, 12]
+    # Usamos letras fijas A, B, C, D, E, F para mayor compatibilidad
+    for i, col_letter in enumerate(['A', 'B', 'C', 'D', 'E', 'F']):
+        ws.column_dimensions[col_letter].width = column_widths[i]
+
+    # --- RESPUESTA ---
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    
+    filename = f"Reporte_Almacenes_{current_time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    response = HttpResponse(
+        excel_buffer.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+##===================##
+## GRUPO ANALITICO  ##
+##===================##
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def lista_grupos_analiticos(request):
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "todos") or "").strip()
+
+    grupos = sis_alm_tab_grupo.objects.all()
+
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            grupos = grupos.filter(activo="1")
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            grupos = grupos.filter(activo="0")
+
+    if q:
+        grupos = grupos.filter(
+            Q(cod__icontains=q)
+            | Q(nom__icontains=q)
+        )
+
+    grupos = grupos.order_by("cod")[:100]
+    serializer = GrupoAnaliticoSerializer(grupos, many=True)
+    return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def crear_grupo_analitico(request):
+    data = request.data.copy()
+    
+    if not data.get('cod'):
+        max_cod = -1
+        todos = sis_alm_tab_grupo.objects.values_list('cod', flat=True)
+        for c in todos:
+            if c and str(c).isdigit():
+                val = int(c)
+                if val > max_cod:
+                    max_cod = val
+        # El DDL dice que cod es varchar(12), pero el usuario quiere como almacenes (zfill 3)
+        data['cod'] = str(max_cod + 1).zfill(3)
+
+    serializer = GrupoAnaliticoSerializer(data=data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticated])
+def actualizar_grupo_analitico(request, cod):
+    try:
+        grupo = sis_alm_tab_grupo.objects.get(cod=cod)
+    except sis_alm_tab_grupo.DoesNotExist:
+        return Response({"detail": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
+    
+    serializer = GrupoAnaliticoSerializer(grupo, data=request.data, partial=(request.method == "PATCH"))
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_grupos_analiticos(request):
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "todos") or "").strip()
+
+    grupos = sis_alm_tab_grupo.objects.all()
+
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            grupos = grupos.filter(activo="1")
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            grupos = grupos.filter(activo="0")
+
+    if q:
+        grupos = grupos.filter(
+            Q(cod__icontains=q)
+            | Q(nom__icontains=q)
+        )
+
+    grupos = grupos.order_by("cod")
+
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from django.http import HttpResponse
+    from django.utils.timezone import localtime, now
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Grupo Analitico"
+
+    # --- DISEÑO DE CABECERA ---
+    ws.merge_cells('A1:B1')
+    ws['A1'] = "VC CORPORATION"
+    ws['A1'].font = Font(name='Arial Black', size=16, color="FF35A39C")
+    ws['A1'].alignment = Alignment(horizontal='left')
+
+    ws['A2'] = "OPTIMIZACIÓN Y AUTOMATIZACIÓN DE PROCESOS"
+    ws['A2'].font = Font(name='Arial', size=8, bold=True, color="666666")
+
+    ws.merge_cells('C1:D1')
+    ws['C1'] = "REPORTE DE GRUPOS ANALÍTICOS"
+    ws['C1'].font = Font(name='Arial', size=14, bold=True)
+    ws['C1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    # Fecha de generación
+    current_time = localtime(now())
+    ws['D2'] = f"Fecha: {current_time.strftime('%d/%m/%Y %H:%M')}"
+    ws['D2'].font = Font(name='Arial', size=9, italic=True)
+    ws['D2'].alignment = Alignment(horizontal='right')
+
+    # --- ENCABEZADOS DE TABLA ---
+    headers = ["CÓDIGO", "NOMBRE", "ESTADO"]
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    header_font = Font(name='Arial', bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(
+        left=Side(style='thin'), 
+        right=Side(style='thin'), 
+        top=Side(style='thin'), 
+        bottom=Side(style='thin')
+    )
+
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # --- DATOS ---
+    for row_num, g in enumerate(grupos, 5):
+        estado_str = "ACTIVO" if str(g.activo) == "1" else "INACTIVO"
+        
+        row_data = [
+            g.cod or "",
+            (g.nom or "").upper(),
+            estado_str
+        ]
+        
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num)
+            cell.value = value
+            cell.border = thin_border
+            cell.font = Font(name='Arial', size=10)
+            
+            if col_num in [1, 3]: 
+                cell.alignment = Alignment(horizontal='center')
+            else:
+                cell.alignment = Alignment(horizontal='left')
+
+    # --- AJUSTE DE ANCHO DE COLUMNAS ---
+    column_widths = [15, 60, 15]
+    for i, col_letter in enumerate(['A', 'B', 'C']):
+        ws.column_dimensions[col_letter].width = column_widths[i]
+
+    # --- RESPUESTA ---
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    
+    filename = f"Reporte_Grupos_Analiticos_{current_time.strftime('%Y%Y%m%d_%H%M%S')}.xlsx"
+
+    response = HttpResponse(
+        excel_buffer.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+##===================##
+##    PRODUCTOS      ##
+##===================##
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def lista_unidades_medida(request):
+    unidades = AlmTabUmed.objects.all().order_by("nom")
+    serializer = AlmTabUmedSerializer(unidades, many=True)
+    return Response(serializer.data)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def lista_articulos(request):
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "todos") or "").strip()
+    grupo_param = (request.GET.get("grupo", "todos") or "").strip()
+    
+    # Nuevos parámetros para búsqueda por campo específico
+    campo = request.GET.get("campo", "").strip()
+    valor = request.GET.get("valor", "").strip()
+
+    articulos = sis_alm_tab_articulos.objects.all()
+
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            articulos = articulos.filter(activo="1")
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            articulos = articulos.filter(activo="0")
+    
+    if grupo_param != "todos":
+        articulos = articulos.filter(gru=grupo_param)
+
+    # Búsqueda por campo específico (si se proporciona)
+    if campo and valor:
+        lookup = {
+            "Registro": "reg",
+            "Codigo": "cod",
+            "Nombre": "nom",
+            "Grupo": "gru",
+            "UM": "um",
+            "Marca": "det",
+            "Cantidad": "can",
+            "Estado": "est",
+            "Codigo Fabricante": "ocod",
+            "Proveedor": "pro",
+            "Activo": "activo",
+        }.get(campo)
+        
+        if lookup:
+            filter_kwargs = {f"{lookup}__icontains": valor}
+            articulos = articulos.filter(**filter_kwargs)
+    elif q:
+        # Búsqueda general original
+        articulos = articulos.filter(
+            Q(cod__icontains=q)
+            | Q(nom__icontains=q)
+            | Q(ocod__icontains=q)
+        )
+
+    # Paginación básica para evitar saturar el navegador si hay miles de productos
+    limit = 500
+    articulos = articulos.order_by("reg")[:limit]
+    serializer = ArticuloSerializer(articulos, many=True)
+    return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def crear_articulo(request):
+    data = request.data.copy()
+    
+    if not data.get('cod'):
+        max_cod = -1
+        # Buscamos el máximo código numérico existente
+        todos = sis_alm_tab_articulos.objects.values_list('cod', flat=True)
+        for c in todos:
+            if c and str(c).isdigit():
+                try:
+                    val = int(c)
+                    if val > max_cod:
+                        max_cod = val
+                except ValueError:
+                    continue
+        data['cod'] = str(max_cod + 1).zfill(3)
+
+    serializer = ArticuloSerializer(data=data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticated])
+def actualizar_articulo(request, reg):
+    try:
+        articulo = sis_alm_tab_articulos.objects.get(reg=reg)
+    except sis_alm_tab_articulos.DoesNotExist:
+        return Response({"detail": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
+    
+    serializer = ArticuloSerializer(articulo, data=request.data, partial=(request.method == "PATCH"))
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def eliminar_articulo(request, reg):
+    try:
+        articulo = sis_alm_tab_articulos.objects.get(reg=reg)
+        articulo.delete()
+        return Response({"detail": "Eliminado correctamente"}, status=status.HTTP_200_OK)
+    except sis_alm_tab_articulos.DoesNotExist:
+        return Response({"detail": "No encontrado"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_articulos(request):
+    q = (request.GET.get("q", "") or "").strip()
+    activo_param = (request.GET.get("activo", "todos") or "").strip()
+    grupo_param = (request.GET.get("grupo", "todos") or "").strip()
+
+    articulos = sis_alm_tab_articulos.objects.all()
+
+    if activo_param not in ("", "%", "todos", "ALL", "all", "Todos"):
+        if str(activo_param).lower() in ("1", "true", "t", "activo"):
+            articulos = articulos.filter(activo="1")
+        elif str(activo_param).lower() in ("0", "false", "f", "inactivo"):
+            articulos = articulos.filter(activo="0")
+    
+    if grupo_param != "todos":
+        articulos = articulos.filter(gru=grupo_param)
+
+    if q:
+        articulos = articulos.filter(
+            Q(cod__icontains=q)
+            | Q(nom__icontains=q)
+        )
+
+    articulos = articulos.order_by("reg")
+
+    # Limitamos para el excel también si es muy grande
+    articulos = articulos[:2000] 
+
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from django.http import HttpResponse
+    from django.utils.timezone import localtime, now
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Productos"
+
+    # --- DISEÑO DE CABECERA ---
+    ws.merge_cells('A1:B1')
+    ws['A1'] = "VC CORPORATION"
+    ws['A1'].font = Font(name='Arial Black', size=16, color="FF35A39C")
+    ws['A1'].alignment = Alignment(horizontal='left')
+
+    ws['A2'] = "OPTIMIZACIÓN Y AUTOMATIZACIÓN DE PROCESOS"
+    ws['A2'].font = Font(name='Arial', size=8, bold=True, color="666666")
+
+    ws.merge_cells('C1:G1')
+    ws['C1'] = "REPORTE DE PRODUCTOS / ARTÍCULOS"
+    ws['C1'].font = Font(name='Arial', size=14, bold=True)
+    ws['C1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    # Fecha de generación
+    current_time = localtime(now())
+    ws['H2'] = f"Fecha: {current_time.strftime('%d/%m/%Y %H:%M')}"
+    ws['H2'].font = Font(name='Arial', size=9, italic=True)
+    ws['H2'].alignment = Alignment(horizontal='right')
+
+    # --- ENCABEZADOS DE TABLA ---
+    headers = ["REG", "CÓDIGO", "NOMBRE", "GRUPO", "U.M.", "STOCK", "P. SOLES", "ESTADO"]
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    header_font = Font(name='Arial', bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(
+        left=Side(style='thin'), 
+        right=Side(style='thin'), 
+        top=Side(style='thin'), 
+        bottom=Side(style='thin')
+    )
+
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # Cargar nombres de grupos para mostrar en el Excel
+    dict_grupos = {g.cod: g.nom for g in sis_alm_tab_grupo.objects.all()}
+
+    # --- DATOS ---
+    for row_num, a in enumerate(articulos, 5):
+        estado_str = "ACTIVO" if str(a.activo) == "1" else "INACTIVO"
+        grupo_nom = dict_grupos.get(a.gru, a.gru)
+        
+        row_data = [
+            a.reg,
+            a.cod or "",
+            (a.nom or "").upper(),
+            grupo_nom,
+            a.um or "",
+            a.can or 0,
+            a.sol or 0,
+            estado_str
+        ]
+        
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num)
+            cell.value = value
+            cell.border = thin_border
+            cell.font = Font(name='Arial', size=10)
+            
+            if col_num in [1, 2, 5, 8]: 
+                cell.alignment = Alignment(horizontal='center')
+            elif col_num in [6, 7]:
+                cell.alignment = Alignment(horizontal='right')
+                cell.number_format = '#,##0.00'
+            else:
+                cell.alignment = Alignment(horizontal='left')
+
+    # --- AJUSTE DE ANCHO DE COLUMNAS ---
+    column_widths = [10, 15, 60, 25, 10, 10, 12, 12]
+    for i, col_letter in enumerate(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']):
+        ws.column_dimensions[col_letter].width = column_widths[i]
+
+    # --- RESPUESTA ---
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    
+    filename = f"Reporte_Productos_{current_time.strftime('%Y%Y%m%d_%H%M%S')}.xlsx"
+
+    response = HttpResponse(
+        excel_buffer.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+# ========================================================================================
+# CENTROS DE COSTO
+# ========================================================================================
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def lista_ccostos(request):
+    """
+    Lista los centros de costo con soporte para filtrado por campo y valor.
+    """
+    activo = request.query_params.get("activo", "todos")
+    campo = request.query_params.get("campo")
+    valor = request.query_params.get("valor")
+
+    queryset = sis_alm_tab_ccosto.objects.all()
+
+    if activo != "todos":
+        queryset = queryset.filter(activo=activo)
+
+    if campo and valor:
+        lookup = {
+            "Codigo": "cod__icontains",
+            "Nombre": "nom__icontains",
+        }.get(campo)
+        
+        if lookup:
+            queryset = queryset.filter(**{lookup: valor})
+
+    serializer = CcostoSerializer(queryset.order_by("cod"), many=True)
+    return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def crear_ccosto(request):
+    serializer = CcostoSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["PUT"])
+@permission_classes([IsAuthenticated])
+def actualizar_ccosto(request, cod):
+    ccosto = get_object_or_404(sis_alm_tab_ccosto, cod=cod)
+    serializer = CcostoSerializer(ccosto, data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def eliminar_ccosto(request, cod):
+    ccosto = get_object_or_404(sis_alm_tab_ccosto, cod=cod)
+    ccosto.delete()
+    return Response({"detail": "Centro de costo eliminado."}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_ccostos(request):
+    """Exporta el catálogo de centros de costo a Excel."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from django.http import HttpResponse
+
+    activo = request.GET.get("activo", "todos")
+    campo  = request.GET.get("campo", "")
+    valor  = request.GET.get("valor", "")
+
+    qs = sis_alm_tab_ccosto.objects.all().order_by("cod")
+    if activo != "todos":
+        qs = qs.filter(activo=activo)
+    if campo and valor:
+        lookup = {"Codigo": "cod__icontains", "Nombre": "nom__icontains"}.get(campo)
+        if lookup:
+            qs = qs.filter(**{lookup: valor})
+
+    WHITE          = "FFFFFF"
+    COLOR_HEADER   = "1E293B"
+    COLOR_SUBHEAD  = "334155"
+    COLOR_ACCENT   = "2563EB"
+    COLOR_ROW_ALT  = "F8FAFC"
+    thin = Side(style="thin", color="E2E8F0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Centros de Costo"
+
+    ws.merge_cells("A1:C1")
+    c = ws["A1"]
+    c.value = "VC CORPORATION S.A.C."
+    c.font = Font(name="Calibri", bold=True, size=14, color=WHITE)
+    c.fill = PatternFill("solid", fgColor=COLOR_HEADER)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    ws.merge_cells("A2:C2")
+    c = ws["A2"]
+    c.value = "CATÁLOGO DE CENTROS DE COSTO"
+    c.font = Font(name="Calibri", bold=True, size=11, color=WHITE)
+    c.fill = PatternFill("solid", fgColor=COLOR_ACCENT)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 22
+
+    for col, h in enumerate(["CÓDIGO", "NOMBRE", "ACTIVO"], start=1):
+        c = ws.cell(row=3, column=col, value=h)
+        c.font = Font(name="Calibri", bold=True, size=10, color=WHITE)
+        c.fill = PatternFill("solid", fgColor=COLOR_SUBHEAD)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = border
+    ws.row_dimensions[3].height = 18
+
+    for row_idx, u in enumerate(qs, start=4):
+        fill = PatternFill("solid", fgColor=COLOR_ROW_ALT if row_idx % 2 == 0 else WHITE)
+        for col, val in enumerate([u.cod, u.nom or "", "Sí" if str(u.activo) == "1" else "No"], start=1):
+            c = ws.cell(row=row_idx, column=col, value=val)
+            c.font = Font(name="Calibri", size=10)
+            c.fill = fill
+            c.alignment = Alignment(vertical="center")
+            c.border = border
+
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 40
+    ws.column_dimensions["C"].width = 12
+
+    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = 'attachment; filename="centros_costo.xlsx"'
+    wb.save(response)
+    return response
+
+
+
+# ============================================================
+# UNIDADES DE MEDIDA  (alm_umed)
+# ============================================================
+from .models import AlmUmed
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def lista_unidades_medida(request):
+    """Lista todas las unidades de medida con búsqueda por código o nombre."""
+    q = request.GET.get("q", "").strip()
+    qs = AlmUmed.objects.all().order_by("cod")
+    if q:
+        from django.db.models import Q
+        qs = qs.filter(Q(cod__icontains=q) | Q(nom__icontains=q) | Q(abr__icontains=q))
+
+    data = [
+        {"cod": u.cod, "nom": u.nom or "", "abr": u.abr or ""}
+        for u in qs
+    ]
+    return Response(data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def crear_unidad_medida(request):
+    """Crea una nueva unidad de medida."""
+    cod = (request.data.get("cod") or "").strip().upper()
+    nom = (request.data.get("nom") or "").strip().upper()
+    abr = (request.data.get("abr") or "").strip().upper()
+
+    if not cod:
+        return Response({"error": "El código es requerido."}, status=400)
+    if not nom:
+        return Response({"error": "El nombre es requerido."}, status=400)
+    if AlmUmed.objects.filter(cod=cod).exists():
+        return Response({"error": f"Ya existe una unidad con código '{cod}'."}, status=400)
+
+    umed = AlmUmed.objects.create(cod=cod, nom=nom, abr=abr)
+    return Response({"cod": umed.cod, "nom": umed.nom, "abr": umed.abr}, status=201)
+
+
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticated])
+def actualizar_unidad_medida(request, cod):
+    """Actualiza nombre y abreviatura de una unidad de medida."""
+    umed = get_object_or_404(AlmUmed, cod=cod)
+    nom = (request.data.get("nom") or "").strip().upper()
+    abr = (request.data.get("abr") or "").strip().upper()
+
+    if not nom:
+        return Response({"error": "El nombre es requerido."}, status=400)
+
+    umed.nom = nom
+    umed.abr = abr
+    umed.save()
+    return Response({"cod": umed.cod, "nom": umed.nom, "abr": umed.abr})
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def eliminar_unidad_medida(request, cod):
+    """Elimina una unidad de medida."""
+    umed = get_object_or_404(AlmUmed, cod=cod)
+    umed.delete()
+    return Response({"detail": "Unidad de medida eliminada."}, status=200)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_unidades_medida(request):
+    """Exporta el catálogo de unidades de medida a Excel (openpyxl)."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from django.http import HttpResponse
+
+    q = request.GET.get("q", "").strip()
+    qs = AlmUmed.objects.all().order_by("cod")
+    if q:
+        from django.db.models import Q
+        qs = qs.filter(Q(cod__icontains=q) | Q(nom__icontains=q) | Q(abr__icontains=q))
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Unidades de Medida"
+
+    # --- Paleta corporativa ---
+    COLOR_HEADER   = "1E293B"   # slate-900
+    COLOR_SUBHEAD  = "334155"   # slate-700
+    COLOR_ACCENT   = "2563EB"   # blue-600
+    COLOR_ROW_ALT  = "F8FAFC"   # slate-50
+    WHITE          = "FFFFFF"
+
+    thin = Side(style="thin", color="E2E8F0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # ---- Fila 1: Empresa ----
+    ws.merge_cells("A1:C1")
+    c = ws["A1"]
+    c.value = "VC CORPORATION S.A.C."
+    c.font = Font(name="Calibri", bold=True, size=14, color=WHITE)
+    c.fill = PatternFill("solid", fgColor=COLOR_HEADER)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    # ---- Fila 2: Título ----
+    ws.merge_cells("A2:C2")
+    c = ws["A2"]
+    c.value = "CATÁLOGO DE UNIDADES DE MEDIDA"
+    c.font = Font(name="Calibri", bold=True, size=11, color=WHITE)
+    c.fill = PatternFill("solid", fgColor=COLOR_ACCENT)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 22
+
+    # ---- Fila 3: encabezados columnas ----
+    headers = ["CÓDIGO", "NOMBRE", "ABREVIATURA"]
+    for col, h in enumerate(headers, start=1):
+        c = ws.cell(row=3, column=col, value=h)
+        c.font = Font(name="Calibri", bold=True, size=10, color=WHITE)
+        c.fill = PatternFill("solid", fgColor=COLOR_SUBHEAD)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = border
+    ws.row_dimensions[3].height = 18
+
+    # ---- Datos ----
+    for row_idx, u in enumerate(qs, start=4):
+        fill = PatternFill("solid", fgColor=COLOR_ROW_ALT) if row_idx % 2 == 0 else PatternFill("solid", fgColor=WHITE)
+        row_data = [u.cod, u.nom or "", u.abr or ""]
+        for col, val in enumerate(row_data, start=1):
+            c = ws.cell(row=row_idx, column=col, value=val)
+            c.font = Font(name="Calibri", size=10)
+            c.fill = fill
+            c.alignment = Alignment(vertical="center", wrap_text=True)
+            c.border = border
+
+    # Anchos de columna
+    ws.column_dimensions["A"].width = 12
+    ws.column_dimensions["B"].width = 35
+    ws.column_dimensions["C"].width = 18
+
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = 'attachment; filename="unidades_medida.xlsx"'
+    wb.save(response)
+    return response
+
+
+# ============================================================
+# DOCUMENTOS ALMACÉN  (sis_alm_tab_doc)
+# ============================================================
+from .models import SisAlmTabDoc
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def lista_doc_almacen(request):
+    """Lista todos los documentos de almacén con búsqueda."""
+    q      = request.GET.get("q", "").strip()
+    activo = request.GET.get("activo", "todos")
+
+    qs = SisAlmTabDoc.objects.all().order_by("cod")
+
+    if activo != "todos":
+        qs = qs.filter(activo=activo)
+
+    if q:
+        from django.db.models import Q
+        qs = qs.filter(Q(cod__icontains=q) | Q(nom__icontains=q))
+
+    data = [{"cod": d.cod, "nom": d.nom or "", "activo": d.activo or "0"} for d in qs]
+    return Response(data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def crear_doc_almacen(request):
+    """Crea un nuevo documento de almacén."""
+    cod    = (request.data.get("cod") or "").strip()
+    nom    = (request.data.get("nom") or "").strip()
+    activo = "1" if request.data.get("activo") in [True, "1", 1, "true", "True"] else "0"
+
+    if not cod:
+        return Response({"error": "El código es requerido."}, status=400)
+    if not nom:
+        return Response({"error": "El nombre es requerido."}, status=400)
+    if SisAlmTabDoc.objects.filter(cod=cod).exists():
+        return Response({"error": f"Ya existe un documento con código '{cod}'."}, status=400)
+
+    doc = SisAlmTabDoc.objects.create(cod=cod, nom=nom, activo=activo)
+    return Response({"cod": doc.cod, "nom": doc.nom, "activo": doc.activo}, status=201)
+
+
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticated])
+def actualizar_doc_almacen(request, cod):
+    """Actualiza nombre y estado de un documento de almacén."""
+    doc    = get_object_or_404(SisAlmTabDoc, cod=cod)
+    nom    = (request.data.get("nom") or "").strip()
+    activo = "1" if request.data.get("activo") in [True, "1", 1, "true", "True"] else "0"
+
+    if not nom:
+        return Response({"error": "El nombre es requerido."}, status=400)
+
+    doc.nom    = nom
+    doc.activo = activo
+    doc.save()
+    return Response({"cod": doc.cod, "nom": doc.nom, "activo": doc.activo})
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def eliminar_doc_almacen(request, cod):
+    """Elimina un documento de almacén."""
+    doc = get_object_or_404(SisAlmTabDoc, cod=cod)
+    doc.delete()
+    return Response({"detail": "Documento eliminado."}, status=200)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_doc_almacen(request):
+    """Exporta el catálogo de documentos de almacén a Excel."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from django.http import HttpResponse
+
+    q      = request.GET.get("q", "").strip()
+    activo = request.GET.get("activo", "todos")
+
+    qs = SisAlmTabDoc.objects.all().order_by("cod")
+    if activo != "todos":
+        qs = qs.filter(activo=activo)
+    if q:
+        from django.db.models import Q
+        qs = qs.filter(Q(cod__icontains=q) | Q(nom__icontains=q))
+
+    WHITE         = "FFFFFF"
+    COLOR_HEADER  = "1E293B"
+    COLOR_SUBHEAD = "334155"
+    COLOR_ACCENT  = "2563EB"
+    COLOR_ROW_ALT = "F8FAFC"
+    thin   = Side(style="thin", color="E2E8F0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Documentos Almacén"
+
+    ws.merge_cells("A1:C1")
+    c = ws["A1"]
+    c.value = "VC CORPORATION S.A.C."
+    c.font  = Font(name="Calibri", bold=True, size=14, color=WHITE)
+    c.fill  = PatternFill("solid", fgColor=COLOR_HEADER)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    ws.merge_cells("A2:C2")
+    c = ws["A2"]
+    c.value = "CATÁLOGO DE DOCUMENTOS DE ALMACÉN"
+    c.font  = Font(name="Calibri", bold=True, size=11, color=WHITE)
+    c.fill  = PatternFill("solid", fgColor=COLOR_ACCENT)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 22
+
+    for col, h in enumerate(["CÓDIGO", "NOMBRE / DESCRIPCIÓN", "ACTIVO"], start=1):
+        c = ws.cell(row=3, column=col, value=h)
+        c.font  = Font(name="Calibri", bold=True, size=10, color=WHITE)
+        c.fill  = PatternFill("solid", fgColor=COLOR_SUBHEAD)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = border
+    ws.row_dimensions[3].height = 18
+
+    for row_idx, d in enumerate(qs, start=4):
+        fgColor = COLOR_ROW_ALT if row_idx % 2 == 0 else WHITE
+        fill = PatternFill("solid", fgColor=fgColor)
+        for col, val in enumerate([d.cod, d.nom or "", "Sí" if d.activo == "1" else "No"], start=1):
+            c = ws.cell(row=row_idx, column=col, value=val)
+            c.font  = Font(name="Calibri", size=10)
+            c.fill  = fill
+            c.alignment = Alignment(vertical="center")
+            c.border = border
+
+    ws.column_dimensions["A"].width = 10
+    ws.column_dimensions["B"].width = 45
+    ws.column_dimensions["C"].width = 12
+
+    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = 'attachment; filename="documentos_almacen.xlsx"'
+    wb.save(response)
+    return response
+
+# ============================================================
+# CÓDIGO DE BARRAS (productos)
+# ============================================================
+from .models import alm_articulos
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def exportar_excel_barras(request):
+    """Genera un reporte de Código de Barras filtrado por inicio/fin."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from django.http import HttpResponse
+
+    codigo_inicial = request.GET.get("codigoInicial", "").strip()
+    codigo_final = request.GET.get("codigoFinal", "").strip()
+    solo_barras = request.GET.get("soloCodigoBarras") in ["true", "1", True]
+
+    qs = alm_articulos.objects.filter(activo="1").order_by("cod")
+    
+    if codigo_inicial and codigo_final:
+        qs = qs.filter(cod__gte=codigo_inicial, cod__lte=codigo_final)
+    elif codigo_inicial:
+        qs = qs.filter(cod__gte=codigo_inicial)
+    elif codigo_final:
+        qs = qs.filter(cod__lte=codigo_final)
+
+    WHITE         = "FFFFFF"
+    COLOR_HEADER  = "1E293B"
+    COLOR_SUBHEAD = "334155"
+    COLOR_ACCENT  = "059669" # Emerald
+    COLOR_ROW_ALT = "F8FAFC"
+    
+    thin   = Side(style="thin", color="E2E8F0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Códigos de Barras"
+
+    ws.merge_cells("A1:C1")
+    c = ws["A1"]
+    c.value = "VC CORPORATION S.A.C."
+    c.font  = Font(name="Calibri", bold=True, size=14, color=WHITE)
+    c.fill  = PatternFill("solid", fgColor=COLOR_HEADER)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    ws.merge_cells("A2:C2")
+    c = ws["A2"]
+    if solo_barras:
+        c.value = "LISTADO DE CÓDIGO DE BARRAS (MODO SOLO BARRAS)"
+    else:
+        c.value = "REPORTE DE CÓDIGO DE BARRAS"
+    c.font  = Font(name="Calibri", bold=True, size=11, color=WHITE)
+    c.fill  = PatternFill("solid", fgColor=COLOR_ACCENT)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 22
+
+    for col, h in enumerate(["CÓDIGO DE BARRAS", "DESCRIPCIÓN", "ESTADO"], start=1):
+        c = ws.cell(row=3, column=col, value=h)
+        c.font  = Font(name="Calibri", bold=True, size=10, color=WHITE)
+        c.fill  = PatternFill("solid", fgColor=COLOR_SUBHEAD)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = border
+    ws.row_dimensions[3].height = 18
+
+    for row_idx, d in enumerate(qs, start=4):
+        fgColor = COLOR_ROW_ALT if row_idx % 2 == 0 else WHITE
+        fill = PatternFill("solid", fgColor=fgColor)
+        
+        # Formateado con asteriscos para fuentes 3of9
+        codigo_formateado = f"*{d.cod}*"
+        descripcion = d.nom or ""
+        if solo_barras:
+            descripcion = "---"
+
+        for col, val in enumerate([codigo_formateado, descripcion, "Disponible"], start=1):
+            c = ws.cell(row=row_idx, column=col, value=val)
+            c.font  = Font(name="Calibri", size=10)
+            c.fill  = fill
+            c.alignment = Alignment(vertical="center")
+            c.border = border
+
+    ws.column_dimensions["A"].width = 25
+    ws.column_dimensions["B"].width = 50
+    ws.column_dimensions["C"].width = 12
+
+    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = 'attachment; filename="reporte_barras.xlsx"'
+    wb.save(response)
+    return response

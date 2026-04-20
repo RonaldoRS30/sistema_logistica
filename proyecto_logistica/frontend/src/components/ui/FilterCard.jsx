@@ -16,6 +16,7 @@ import {
   Send,
   FileSliders,
   FunnelX,
+   Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import api from "@/services/api";
@@ -26,17 +27,23 @@ import api from "@/services/api";
 const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
   const currentYear = new Date().getFullYear();
 
-  const [filters, setFilters] = useState({
-
-    anio: initialFilters.anno || currentYear.toString(),
+const [filters, setFilters] = useState(() => {
+  const initialState = {
+    anio: initialFilters.anno || currentYear.toString() || "%",
     mes: initialFilters.mes || "%",
     cliente: initialFilters.cliente || "%",
     estado: initialFilters.estado || "%",
-    area: initialFilters.area || "%",
+    movimiento: initialFilters.referencia || "%",
+    area: initialFilters.almacen || "%",
     envio: initialFilters.envio || "%",
     generalCampo: "",
     generalValor: "",
-  });
+  };
+
+  console.log("🟢 INITIAL FILTERS:", initialState);
+
+  return initialState;
+});
 
   const [clientes, setClientes] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -57,29 +64,56 @@ const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
     { value: "2", label: "Pendiente de Aprobacion" },
     { value: "3", label: "Enviado" },
   ];
+const movimientos = [
+  { value: "%", label: "-- Todos --" },
+  { value: "P", label: "Proveedor/Cliente" },
+  { value: "D", label: "Dependencia" },
+  { value: "C", label: "Centro de Costo" },
+  { value: "A", label: "Apertura" },
+  { value: "O", label: "Otro" },
+  { value: "DON", label: "Donación" },
+  { value: "U", label: "Colaborador" }
+];
 
+const almacenes = [
+  { value: "%", label: "-- Todos --" },
+  { value: "000", label: "Almacén Principal" },
+  { value: "001", label: "Almacén Equipos de Protección" },
+  { value: "003", label: "Almacén de Equipos para Venta" },
+  { value: "004", label: "Movimientos Quellaveco" },
+  { value: "005", label: "Para Ventas" },
+  { value: "006", label: "Almacén Patrimonio" },
+  { value: "007", label: "Temporal" }
+];
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const DEFAULT_FILTERS = {
-    anio: currentYear.toString(),
-    mes: "%",
-    cliente: "%",
-    estado: "%",
-    area: "%",
-    envio: "%",
-    generalCampo: "",
-    generalValor: "",
+  const [refreshKey, setRefreshKey] = useState(0);
+    const DEFAULT_FILTERS = {
+      anio: currentYear.toString() || "%",
+      mes: "%",
+      cliente: "%",
+      estado: "%",
+      movimiento: "%", // 👈 agregar
+      area: "%",
+      envio: "%",
+      generalCampo: "",
+      generalValor: "",
+    };
+
+const handleClearFilters = async () => {
+  const nuevosFiltros = {
+    ...DEFAULT_FILTERS,
+    _refresh: Date.now(), // 🔥 fuerza cambio SIEMPRE
   };
 
-  const handleClearFilters = async () => {
-    setFilters(DEFAULT_FILTERS);
-    // Si quieres que se aplique inmediatamente
-    if (onProcess) {
-      await onProcess(DEFAULT_FILTERS);
-    }
-  };
+  setFilters(nuevosFiltros);
+
+  if (onProcess) {
+    await onProcess(nuevosFiltros);
+  }
+};
 
   /* ==========================================================
      🚀 Carga inicial de combos (Clientes / Áreas / Estados / Envios)
@@ -125,21 +159,18 @@ const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
   /* ==========================================================
      🎯 Campos del Filtro General — DashboardCotizacion
      ========================================================== */
-  const camposGenerales = [
-    { value: "", label: "-- Todos --" },
-    { value: "num_reg", label: "N° Registro" },
-    { value: "cotin", label: "Código" },
-    { value: "cotif", label: "Fecha Emisión" },
-    { value: "cliente_nombre", label: "Nombre Cliente" },
-    { value: "refef", label: "Referencia" },
-    { value: "nombr", label: "Representante" },
-    { value: "nombc", label: "Resp. Comercial" },
-    { value: "nombt", label: "Resp. Técnico" },
-    { value: "tot_c", label: "Cotizado" },
-    { value: "tot_d", label: "Total" },
-    { value: "prob", label: "Probabilidad" },
-    { value: "regus", label: "Hecho por" },
-  ];
+const camposGenerales = [
+  { value: "%", label: "--- Todos ---" },
+  { value: "num_reg", label: "N° Registro" },
+  { value: "oco", label: "Orden de Compra" },
+  { value: "fec", label: "Fecha Registro" },
+  { value: "cor", label: "Código Origen" },
+  { value: "dor", label: "Nombre Origen" },
+  { value: "nfa", label: "N° Factura" },
+  { value: "ngu", label: "N° Guía" },
+  { value: "sol", label: "Total" },
+  { value: "est", label: "Estado" }
+];
 
   const handleChange = (field, value) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
@@ -158,14 +189,18 @@ const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
       const filtros = { ...filters };
 
       // Convertir filtro general en campo real
-      if (filtros.generalCampo && filtros.generalValor) {
+          if (
+        filtros.generalCampo &&
+        filtros.generalCampo !== "%" &&
+        filtros.generalValor
+      ) {
         filtros.campo = filtros.generalCampo;
         filtros.valor = filtros.generalValor.trim();
       }
 
       delete filtros.generalCampo;
       delete filtros.generalValor;
-
+  console.log("🧪 FILTROS LIMPIOS:", filtros);
       await onProcess(filtros);
     } catch (err) {
       console.error("❌ Error al aplicar filtros:", err);
@@ -237,13 +272,19 @@ const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
               {/* Año + Mes */}
               <div className="grid grid-cols-2 gap-2">
                 {/* Año */}
-                <SelectBox
-                  label="Año"
-                  icon={<Calendar className="w-4 h-4" />}
-                  options={anios.reverse().map((a) => ({ value: a, label: a }))}
-                  value={filters.anio}
-                  onChange={(e) => handleChange("anio", e.target.value)}
-                />
+               <SelectBox
+               label="Año"
+                icon={<Calendar className="w-4 h-4" />}
+                options={[
+                   { value: "%", label: "Todos" },          // <- opción para todos
+                      ...anios
+                         .slice()
+                        .reverse()
+                .map((a) => ({ value: String(a), label: String(a) })),
+                       ]}
+               value={filters.anio}
+               onChange={(e) => handleChange("anio", e.target.value)}
+                               />
 
                 {/* Mes */}
                 <SelectBox
@@ -257,29 +298,23 @@ const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
 
               {/* mov */}
               <SelectBox
-                label="Mov"
+                label="Movimiento"
                 icon={<Building2 className="w-4 h-4" />}
-                options={[
-                  { value: "%", label: "-- Todos --" },
-                  ...clientes.map((c) => ({
-                    value: c.codigo,
-                    label: c.nombre,
-                  })),
-                ]}
-                value={filters.cliente}
-                onChange={(e) => handleChange("cliente", e.target.value)}
+                options={movimientos}
+                value={filters.movimiento}
+                onChange={(e) => handleChange("movimiento", e.target.value)}
               />
 
            
 
               {/* Almacenes */}
-              <SelectBox
-                label="Almacenes"
-                icon={<Info className="w-4 h-4" />}
-                options={estados}
-                value={filters.estado}
-                onChange={(e) => handleChange("estado", e.target.value)}
-              />
+           <SelectBox
+              label="Almacenes"
+              icon={<Info className="w-4 h-4" />}
+              options={almacenes}
+              value={filters.area}
+              onChange={(e) => handleChange("area", e.target.value)}
+            />
 
        
               {/* General + Buscador */}
@@ -329,10 +364,19 @@ const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
               </Button>
 
               <Button
-                onClick={() => onReport?.(filters)}
+                onClick={handleClearFilters}
                 size="lg"
                 variant="ghost"
                 className="text-sm font-black uppercase tracking-widest text-green-700 hover:bg-green-100 border border-transparent hover:border-green-200 rounded-xl h-9 px-8 transition-all"
+              >
+                <Trash2 className="w-4 h-4" /> Limpiar
+              </Button>
+
+              <Button
+                onClick={() => onReport?.(filters)}
+                size="lg"
+                variant="ghost"
+                className="text-sm font-black uppercase tracking-widest text-yellow-700 hover:bg-yellow-100 border border-transparent hover:border-yellow-200 rounded-xl h-9 px-8 transition-all"
               >
                 <FileSliders className="w-4 h-4" /> Reporte
               </Button>

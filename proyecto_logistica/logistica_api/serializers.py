@@ -20,12 +20,17 @@ from .models import (
     vc_tab_ceyesa,
     vc_tab_hoffman,
     alm_articulos,
+    sis_alm_tab_almacen,
     seg_usuario,
     cont_cias,
     CotiSuministros,
     CotiServicios,
     CotiMensajes,
     CotiSeguimiento,
+    sis_alm_tab_grupo,
+    sis_alm_tab_articulos,
+    AlmTabUmed,
+    sis_alm_tab_ccosto,
 )
 from django.contrib.auth import get_user_model
 from django.utils.timezone import localtime
@@ -492,4 +497,40 @@ class SegUsuarioSerializer(serializers.ModelSerializer):
 class ContCiasSerializer(serializers.ModelSerializer):
     class Meta:
         model = cont_cias
+        fields = "__all__"
+
+# sis_alm_tab_almacen
+class AlmacenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = sis_alm_tab_almacen
+        fields = "__all__"
+
+# AlmTabUmed
+class AlmTabUmedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AlmTabUmed
+        fields = "__all__"
+
+# sis_alm_tab_grupo
+class GrupoAnaliticoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = sis_alm_tab_grupo
+        fields = "__all__"
+
+# sis_alm_tab_articulos
+class ArticuloSerializer(serializers.ModelSerializer):
+    # Opcional: podrías incluir nombres de grupo y um si lo deseas
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # Limpiar valores null o strings vacíos si es necesario
+        return representation
+
+    class Meta:
+        model = sis_alm_tab_articulos
+        fields = "__all__"
+
+# sis_alm_tab_ccosto
+class CcostoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = sis_alm_tab_ccosto
         fields = "__all__"

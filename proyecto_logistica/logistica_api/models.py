@@ -142,6 +142,20 @@ class SegUsuario(models.Model):
         except VcTabBancos.DoesNotExist:
             return ""
 
+
+class TipoCambio(models.Model):
+    id_tcambio = models.AutoField(primary_key=True)
+
+    fec = models.DateField(db_column='_fec')
+    hor = models.CharField(max_length=10, db_column='_hor')
+    com = models.DecimalField(max_digits=7, decimal_places=3, db_column='_com', null=True, blank=True)
+    ven = models.DecimalField(max_digits=7, decimal_places=3, db_column='_ven', null=True, blank=True)
+    obs = models.CharField(max_length=80, db_column='_obs', null=True, blank=True)
+    activo = models.CharField(max_length=1, default='1')
+
+    class Meta:
+        db_table = 'cont_tcambio'
+        managed = False
 #========================================================================================
 
 ##============================##
@@ -409,13 +423,13 @@ class CotiSeguimiento(models.Model):
 ##=============================##
 class LogisticaDashboard(models.Model):
     # Campos principales
-    num_reg = models.IntegerField(primary_key=True)
+    num_reg = models.AutoField(primary_key=True)
     ope = models.CharField(max_length=1, blank=True, null=True) # operacion
     anno = models.CharField(max_length=4, blank=True, null=True)
     mes = models.CharField(max_length=2, blank=True, null=True)
     fec = models.DateField(blank=True, null=True) #fecha
     oco = models.CharField(max_length=100, blank=True, null=True) #ocompra
-    mov = models.CharField(max_length=1, blank=True, null=True)
+    mov = models.CharField(max_length=5, blank=True, null=True)
     tmo = models.CharField(max_length=100, blank=True, null=True)
     tc = models.DecimalField(max_digits=7, decimal_places=3, blank=True, null=True)
     cor = models.CharField(max_length=11, blank=True, null=True)
@@ -447,8 +461,9 @@ class LogisticaDashboard(models.Model):
 # DETALLE
 class LogisticaDashboardDetalle(models.Model):
     # Campos principales
-    num_reg = models.IntegerField(primary_key=True)
-    num = models.CharField(max_length=30, blank=True, null=True) # operacion
+    id = models.AutoField(primary_key=True)
+    num_reg = models.IntegerField()
+    num = models.CharField(max_length=30, blank=True, null=False) # operacion
     cod = models.CharField(max_length=70, blank=True, null=True)
     nom = models.CharField(max_length=1000, blank=True, null=True)
     um = models.CharField(max_length=10, blank=True, null=True) #fecha
@@ -630,9 +645,22 @@ class vc_tab_areas(models.Model):
 # vc_tab_clientes
 class vc_tab_clientes(models.Model):
     codigo = models.CharField(max_length=20, primary_key=True)
-    nombre = models.CharField(max_length=150)
-    iniciales = models.CharField(max_length=50, blank=True, null=True)
-    ruc = models.CharField(max_length=20, blank=True, null=True)
+    nombre = models.CharField(max_length=70, blank=True, null=True)
+    iniciales = models.CharField(max_length=20, blank=True, null=True)
+    ruc = models.CharField(max_length=11, blank=True, null=True)
+    dir = models.CharField(max_length=200, blank=True, null=True)
+    tipo = models.CharField(max_length=2, blank=True, null=True)
+    fpago = models.CharField(max_length=100, blank=True, null=True)
+    web = models.CharField(max_length=200, blank=True, null=True)
+    rleg = models.CharField(max_length=100, blank=True, null=True)
+    ubic = models.CharField(max_length=100, blank=True, null=True)
+    logo = models.CharField(max_length=20, blank=True, null=True)
+    eva = models.CharField(max_length=100, blank=True, null=True)
+    pro = models.CharField(max_length=100, blank=True, null=True)  # Actividad
+    det = models.CharField(max_length=100, blank=True, null=True)
+    rub = models.CharField(max_length=100, blank=True, null=True)
+    res = models.CharField(max_length=80, blank=True, null=True)
+    fecha = models.DateField(blank=True, null=True)
 
     activo = models.BooleanField(default=True)
 
@@ -879,7 +907,7 @@ class vc_tab_tgastos_d(models.Model):
     importe = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     cod_tipo = models.CharField("Cod_Tipo", max_length=2, blank=True, null=True)
     activo = models.CharField("Activo", max_length=1) 
-    cantidad = models.IntegerField(max_length=10) 
+    cantidad = models.IntegerField() 
 
     class Meta:
         db_table = "vc_tab_tgastos_d"
@@ -1043,4 +1071,106 @@ class alm_articulos(models.Model):
 
     def __str__(self):
         return f"{self.codigo} ({self.nombre})"
+
+# sis_alm_tab_almacen
+class sis_alm_tab_almacen(models.Model):
+    cod = models.CharField(max_length=3, primary_key=True)
+    nom = models.CharField(max_length=50, blank=True, null=True)
+    res = models.CharField(max_length=50, blank=True, null=True)
+    tel = models.CharField(max_length=50, blank=True, null=True)
+    dir = models.CharField(max_length=50, blank=True, null=True)
+    activo = models.CharField(max_length=1, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = "sis_alm_tab_almacen"
+
+    def __str__(self):
+        return f"{self.cod} - {self.nom}"
+
+# sis_alm_tab_grupo
+class sis_alm_tab_grupo(models.Model):
+    cod = models.CharField(max_length=12, primary_key=True)
+    nom = models.CharField(max_length=150, blank=True, null=True)
+    activo = models.CharField(max_length=1, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = "sis_alm_tab_grupo"
+
+    def __str__(self):
+        return f"{self.cod} - {self.nom}"
+
+# sis_alm_tab_articulos
+class sis_alm_tab_articulos(models.Model):
+    reg = models.AutoField(primary_key=True)
+    cod = models.CharField(max_length=50, blank=True, null=True)
+    nom = models.CharField(max_length=500, blank=True, null=True)
+    gru = models.CharField(max_length=12, blank=True, null=True, default="000")
+    um = models.CharField(max_length=10, blank=True, null=True)
+    det = models.CharField(max_length=100, blank=True, null=True)
+    sol = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    dol = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    can = models.IntegerField(blank=True, null=True)
+    min = models.IntegerField(blank=True, null=True)
+    max = models.IntegerField(blank=True, null=True)
+    dct = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    pro = models.CharField(max_length=70, blank=True, null=True)
+    est = models.CharField(max_length=70, blank=True, null=True)
+    obs = models.CharField(max_length=100, blank=True, null=True)
+    ocod = models.CharField(max_length=50, blank=True, null=True)
+    activo = models.CharField(max_length=1, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = "sis_alm_tab_articulos"
+        ordering = ["reg"]
+
+    def __str__(self):
+        return f"{self.cod or self.reg} - {self.nom}"
+
+# sis_alm_tab_ccosto
+class sis_alm_tab_ccosto(models.Model):
+    cod = models.CharField(max_length=10, primary_key=True)
+    nom = models.CharField(max_length=32, blank=True, null=True)
+    activo = models.CharField(max_length=1, blank=True, null=True, default="1")
+
+    class Meta:
+        managed = False
+        db_table = "sis_alm_tab_ccosto"
+
+    def __str__(self):
+        return f"{self.cod} - {self.nom}"
+
+
+# ============================
+# UNIDAD DE MEDIDA  (alm_umed)
+# ============================
+class AlmUmed(models.Model):
+    cod = models.CharField(max_length=5, primary_key=True)
+    nom = models.CharField(max_length=30, blank=True, null=True)
+    abr = models.CharField(max_length=10, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = "alm_umed"
+
+    def __str__(self):
+        return f"{self.cod} - {self.nom}"
+
+
+# ============================
+# DOCUMENTOS ALMACÉN  (sis_alm_tab_doc)
+# ============================
+class SisAlmTabDoc(models.Model):
+    cod    = models.CharField(max_length=2, primary_key=True)
+    nom    = models.CharField(max_length=50, blank=True, null=True)
+    activo = models.CharField(max_length=1, blank=True, null=True, default="1")
+
+    class Meta:
+        managed = False
+        db_table = "sis_alm_tab_doc"
+
+    def __str__(self):
+        return f"{self.cod} - {self.nom}"
 

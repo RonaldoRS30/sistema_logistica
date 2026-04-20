@@ -1,6 +1,8 @@
 //MODAL PARA REALIZAR UN NUEVO REGISTRO DE ENTRADA
 
 import React, { useState, useRef, useEffect } from "react";
+import logoImg from "@/assets/logo.png";
+
 import api from "@/services/api";
 import SelectField from "../../components/ui/SelectField";
 import {
@@ -74,10 +76,15 @@ export default function LogisticaModal({ open, onClose, dataInitial = null, logi
         cant:        cant,
         valor:       valor,
         total:       cant * valor,
+    
       },
     ]);
     setNewItem({ codigo: "", descripcion: "", um: "", cant: "", valor: "" });
+  
+  
   };
+
+   
 
   const handleRemoveItem = (id) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
@@ -89,11 +96,12 @@ const fetchNextNumReg = async () => {
   try {
     const { data } = await api.get('logistica/dashboard/next-num-reg/');
     console.log('✅ next-num-reg response:', data); // ← agrega esto
-    setForm({
+   setForm((prev) => ({
+      ...prev,
       numero: data.num_reg_formatted,
       fecha: new Date().toISOString().split('T')[0],
       moneda: 'Soles',
-    });
+    }));
   } catch (err) {
     console.error('❌ Error next-num-reg:', err); // ← y esto
     toast.error('No se pudo obtener el siguiente número de registro');
@@ -110,15 +118,9 @@ useEffect(() => {
   }
 
   if (logistica?.num_reg) {
-    // ✅ MODO EDICIÓN — carga registro existente
     fetchLogisticaDetalle(logistica.num_reg);
   } else {
-    // ✅ MODO NUEVO — trae el siguiente num_reg automáticamente
-    fetchNextNumReg();
-    setForm({
-      fecha: new Date().toISOString().split('T')[0],
-      moneda: 'Soles',
-    });
+    fetchNextNumReg(); // 🔥 SOLO ESTO
   }
 }, [open, logistica?.num_reg]);
 
@@ -168,8 +170,13 @@ useEffect(() => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // await api.post("logistica/salida-almacen/", { ...form, items });
-      toast.success("Salida de almacén guardada correctamente");
+      await api.post("logistica/movimiento/", {
+        ...form,
+        items,
+        ope: "E", // 🔥 CLAVE
+      });
+
+      toast.success("Entrada de almacén guardada correctamente");
       onClose();
     } catch (error) {
       toast.error("Error al procesar el registro");
@@ -270,7 +277,7 @@ const [ordenLista, setOrdenLista]     = useState([]);
 const [loadingOrden, setLoadingOrden] = useState(false);
 const [openSeleccionOC, setOpenSeleccionOC] = useState(false);
 const [itemsOCSeleccion, setItemsOCSeleccion] = useState([]); // para el modal de check
-
+const [ordenSeleccionada, setOrdenSeleccionada] = useState(null);
 const handleCloseOrden = () => {
   setOpenOrden(false);
   setOrdenProveedor("");
@@ -310,11 +317,13 @@ const handleSeleccionarOrden = async (oc) => {
     ...prev,
     orden_compra: oc.codigo,
     razon_social: oc.cliente,
-    moneda: oc.moneda === "D" ? "Dolares" : "Soles",
+    moneda: oc.moneda === "Dolares" ? "Dolares" : "Soles",
     tc: Number(oc.tcambio || 0),
     monto_orden_soles: Number(oc.monto_soles || 0),
     monto_orden_dolares: Number(oc.monto_dolares || 0),
   }));
+
+   setOrdenSeleccionada(oc);
 
   try {
     const { data } = await api.get(
@@ -467,7 +476,7 @@ const handleCloseUmed = () => {
         almacen:         cab.almacen         || "",
         referencia:      cab.referencia      || "",
         numero:          cab.numero          || "",
-        moneda:          cab.moneda === "D" ? "Dolares" : "Soles",
+        moneda:          cab.moneda === "Dolares" ? "Dolares" : "Soles",
         tc:              tc,
         responsable:     cab.responsable     || "",
         tipo_movimiento: cab.tipo_movimiento || "",
@@ -479,7 +488,7 @@ const handleCloseUmed = () => {
         puntoPartida:    cab.observacion     || "",
         puntoLlegada:    "",
         nro_guia:        cab.nro_guia        || "",
-        obs_doc:         cab.obs_doc         || "",
+        obs_doc:         cab.observacion     || "",
       };
 
       setForm(formHidratado);
@@ -534,9 +543,10 @@ const handleCloseUmed = () => {
         <div className="shrink-0 bg-slate-900 px-6 py-4 border-b border-slate-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-teal-600 text-white rounded-lg">
+<div className="p-2 bg-teal-600 text-white rounded-lg">
                 <Package size={20} strokeWidth={2.5} />
               </div>
+              <img src={logoImg} alt="Logo VC Corporation" className="h-8 w-auto ml-2" />
               <div>
                 <h3 className="text-sm font-black text-white uppercase tracking-tight">
                   Entrada de Almacén
@@ -587,15 +597,15 @@ const handleCloseUmed = () => {
             </div>
             <div className="col-span-3 space-y-1">
               <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Moneda</label>
-              <select
-                name="moneda"
-                value={form.moneda || ""}
-                onChange={handleInputChange}
-                className="w-full text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 outline-none"
-              >
-                <option value="Soles">Soles</option>
-                <option value="Dolares">Dolares</option>
-              </select>
+                 <select
+                  name="moneda"
+                  value={form.moneda || ""}
+                  className="w-full text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 bg-gray-100"
+                >
+                  <option value="Soles">Soles</option>
+                  <option value="Dolares">Dolares</option>
+                </select>
+
             </div>
 
             <div className="col-span-3 space-y-1">
@@ -621,48 +631,79 @@ const handleCloseUmed = () => {
                 options={movimientoOptions}
               />
             </div>
-              <div className="col-span-5 space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Numero</label>
-                <button
-                  onClick={() => {
-                      console.log("CLICK NUMERO");   
-                      setOrdenProveedor("");
-                      setOrdenNumero("");
-                      setOrdenLista([]);
-                      setOpenOrden(true);
-                    }}
-                  className="w-full text-left text-xs font-semibold border border-slate-300 rounded-lg px-3 py-2 
-                            bg-white hover:bg-teal-50 hover:border-teal-400 hover:text-teal-700 
-                            transition-colors outline-none cursor-pointer"
-                  title="Ingresar numero de documento o referencia"
-                >
-                  {form.orden_compra
-                    ? <span className="text-slate-700">{form.orden_compra}</span>
-                    : <span className="text-slate-400">Seleccionar usuario...</span>
-                  }
-                </button>
-              </div>
+            <div className="col-span-5 space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                      Número
+                    </label>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={form.orden_compra || ""}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            orden_compra: e.target.value,
+                          }))
+                        }
+                        placeholder="Ingresar número o referencia..."
+                        className="w-full text-xs font-semibold border border-slate-300 rounded-lg px-3 py-2 pr-10
+                                  bg-white focus:ring-2 focus:ring-teal-400 outline-none"
+                      />
+
+                      {/* BOTÓN PARA ABRIR MODAL */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          console.log("CLICK NUMERO");
+                          setOrdenProveedor("");
+                          setOrdenNumero("");
+                          setOrdenLista([]);
+                          setOpenOrden(true);
+                        }}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 px-2 py-1 text-xs 
+                                  bg-teal-100 hover:bg-teal-200 text-teal-700 rounded-md"
+                        title="Buscar orden"
+                      >
+                        🔍
+                      </button>
+                    </div>
+                  </div>
               <div className="col-span-9 space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
                   Razón Social
                 </label>
-                <button
-                  onClick={() => {
-                    setClienteQuery("");
-                    setClienteLista([]);
-                    fetchClientes("");
-                    setOpenCliente(true);
-                  }}
-                  className="w-full text-left text-xs font-semibold border border-slate-300 rounded-lg px-3 py-2 
-                            bg-white hover:bg-teal-50 hover:border-teal-400 hover:text-teal-700 
-                            transition-colors outline-none cursor-pointer"
-                  title="Seleccionar cliente"
-                >
-                  {form.razon_social
-                    ? <span className="text-slate-700">{form.razon_social}</span>
-                    : <span className="text-slate-400">Seleccionar cliente...</span>
-                  }
-                </button>
+                       <div className="relative">
+                  <input
+                    type="text"
+                    value={form.razon_social || ""}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        razon_social: e.target.value,
+                      }))
+                    }
+                    placeholder="Ingresar o buscar cliente..."
+                    className="w-full text-xs font-semibold border border-slate-300 rounded-lg px-3 py-2 pr-10
+                              bg-white focus:ring-2 focus:ring-teal-400 outline-none"
+                  />
+
+                  {/* BOTÓN PARA ABRIR MODAL */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClienteQuery("");
+                      setClienteLista([]);
+                      fetchClientes("");
+                      setOpenCliente(true);
+                    }}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 px-2 py-1 text-xs 
+                              bg-teal-100 hover:bg-teal-200 text-teal-700 rounded-md"
+                    title="Buscar cliente"
+                  >
+                    🔍
+                  </button>
+                </div>
               </div>
           </div>
 
@@ -682,26 +723,43 @@ const handleCloseUmed = () => {
                   className="w-full text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 outline-none"
                 />
               </div>
-            <div className="col-span-9 space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Recibido por</label>
+     <div className="col-span-9 space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                Recibido por
+              </label>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  value={form.responsable || ""}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      responsable: e.target.value,
+                    }))
+                  }
+                  placeholder="Ingresar o buscar usuario..."
+                  className="w-full text-xs font-semibold border border-slate-300 rounded-lg px-3 py-2 pr-10
+                            bg-white focus:ring-2 focus:ring-teal-400 outline-none"
+                />
+
+                {/* BOTÓN MODAL */}
                 <button
+                  type="button"
                   onClick={() => {
                     setUsuarioQuery("");
                     setUsuarioLista([]);
                     fetchUsuarios("");
                     setOpenUsuario(true);
                   }}
-                  className="w-full text-left text-xs font-semibold border border-slate-300 rounded-lg px-3 py-2 
-                            bg-white hover:bg-teal-50 hover:border-teal-400 hover:text-teal-700 
-                            transition-colors outline-none cursor-pointer"
-                  title="Seleccionar responsable"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 px-2 py-1 text-xs 
+                            bg-teal-100 hover:bg-teal-200 text-teal-700 rounded-md"
+                  title="Buscar usuario"
                 >
-                  {form.responsable
-                    ? <span className="text-slate-700">{form.responsable}</span>
-                    : <span className="text-slate-400">Seleccionar usuario...</span>
-                  }
+                  🔍
                 </button>
               </div>
+            </div>  
 
               <div className="col-span-6 space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 flex items-center gap-1">
@@ -1698,11 +1756,21 @@ const handleCloseUmed = () => {
           </button>
           <button
             className="px-3 py-1.5 text-[11px] rounded-lg bg-emerald-500 text-slate-900 font-semibold hover:bg-emerald-400 transition-colors"
-            onClick={() => {
-              const seleccionados = itemsOCSeleccion.filter((it) => it.checked);
-              setItems(seleccionados);
-              setOpenSeleccionOC(false);
-            }}
+              onClick={() => {
+                const seleccionados = itemsOCSeleccion.filter((it) => it.checked);
+                setItems(seleccionados);
+
+                // 🔥 aquí seteas la moneda definitivamente
+                if (ordenSeleccionada) {
+                  setForm((prev) => ({
+                    ...prev,
+                    moneda:
+                      ordenSeleccionada.moneda === "D" ? "Dolares" : "Soles",
+                  }));
+                }
+
+                setOpenSeleccionOC(false);
+              }}
           >
             Aceptar selección
           </button>
@@ -1711,9 +1779,6 @@ const handleCloseUmed = () => {
     </div>
   </div>
 )}
-
-
-
 
       </DialogContent>
     </Dialog>

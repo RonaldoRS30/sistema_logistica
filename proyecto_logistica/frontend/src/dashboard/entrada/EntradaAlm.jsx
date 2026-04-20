@@ -15,43 +15,7 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { getEstadoColor, getEstadoNombre, ESTADO_STATE_COLORS } from "@/components/ui/colors";
 import AprobacionCotizacionModal from "../aprobacion_cotizacion/AprobacionCotizacionModal";
 import { useNavigate } from "react-router-dom";
-import CotizacionNuevaModal from "../aprobacion_cotizacion/CotizacionNuevaModal";
-import LogisticaModal from "../modal/logisticaModal";
 import NuevaLogisticaModal from "../modal/nuevaLogisticaModal";
-
-const fetchCotizacionesAprobacion = async ({ queryKey }) => {
-  const [_key, params] = queryKey;
-
-  const token = localStorage.getItem("access_token");
-
-  const usuarioRes = await api.get("usuario-actual/", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const nombUsuario = usuarioRes.data?.usuario_usu;
-
-  const { data } = await api.get(
-    "cotizaciones/aprobacion_cotizacion",
-    {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        ...params,
-        usuario: nombUsuario,
-      },
-    }
-  );
-
-  const tabla = Array.isArray(data?.tabla) ? data.tabla : [];
-
-  const dataLimpia = tabla
-    .filter(i => i.regus?.trim().toUpperCase() === nombUsuario?.trim().toUpperCase())
-
-  return {
-    cotizaciones: dataLimpia,
-    stats: data.dashboard || {},
-  };
-};
-
 
 const fetchLogisticaDashboard = async ({ queryKey }) => {
   const [_key, params] = queryKey;
@@ -73,21 +37,17 @@ const fetchLogisticaDashboard = async ({ queryKey }) => {
 
   const tabla = Array.isArray(data?.tabla) ? data.tabla : [];
 
-  // 🔥 3) FILTRAR SOLO ENTRADAS (ope = "E")
-  const soloEntradas = tabla.filter(
-    (item) => String(item.ope).trim().toUpperCase() === "E"
-  );
+
 
   return {
-    movimientos: soloEntradas,
+    movimientos: tabla,
     stats: data.dashboard || {},
     anno: data.anno,
     usuario: nombUsuario,
   };
 };
 
-
-export default function EntradaAlmacen() {
+export default function SalidaAlmacen() {
   const { authUser: user, logout } = useAuth();
   const [filtro, setFiltro] = useState("Todos");
   const [fechaInicio, setFechaInicio] = useState("");
@@ -96,22 +56,25 @@ export default function EntradaAlmacen() {
   const [logisticaSeleccionada, setLogisticaSeleccionada] = useState(null);
   const navigate = useNavigate();
   const [openNueva, setOpenNueva] = useState(false);
-  const [annoActual, setAnnoActual] = useState(new Date().getFullYear()); // año actual por defecto
+  const currentYear = new Date().getFullYear().toString();
+  const [annoActual, setAnnoActual] = useState(currentYear);
   const [processingFilters, setProcessingFilters] = useState(false);
   const [currentFilters, setCurrentFilters] = useState({
-    anno: new Date().getFullYear(), // año actual
+    anno: currentYear,               // año actual por defecto (igual que FilterCard)
     mes: "%",                        // todos los meses por defecto
     cliente: "%",                    // todos los clientes
     estado: "%",                     // todos los estados
-    area: "%",                        // todas las áreas
-    envio: "%",                       // todos los envíos
-    num_reg: "",                      // opcional: número de registro específico
-    campo: "",                        // campo específico para búsqueda flexible
-    valor: "",                        // valor para el campo específico
-    generalCampo: "",                 // búsqueda general tipo CAJA CHICA
-    generalValor: "",                 // valor de búsqueda general
-    index: 1,                         // página actual si implementas paginación
-    num_regs: 10,                     // cantidad de registros por página
+    almacen: "%",                    // todas las áreas
+    envio: "%",                      // todos los envíos
+    referencia: "%",
+    operacion: 'E',                  // 🔑 ENTRADAS: siempre 'E'
+    num_reg: "",
+    campo: "",
+    valor: "",
+    generalCampo: "",
+    generalValor: "",
+    index: 1,
+    num_regs: 10,
   });
   const [clientesMap, setClientesMap] = useState({});
   const queryClient = useQueryClient();
@@ -121,7 +84,7 @@ export default function EntradaAlmacen() {
     isFetching,
     error,
   } = useQuery({
-    queryKey: ["logistica", currentFilters],
+    queryKey: ["logistica_entrada", currentFilters],
     queryFn: fetchLogisticaDashboard,
     keepPreviousData: true,
   });
@@ -143,15 +106,11 @@ export default function EntradaAlmacen() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [shadowOpacity, blurValue]);
 
-  const logisticaEntrada = cotizaciones
-    .filter((c) => {
-      const pasaEstado = filtro === "Todos" || c.estado_nombre === filtro;
-      const pasaFecha =
-        (!fechaInicio || new Date(c.cotif) >= new Date(fechaInicio)) &&
-        (!fechaFin || new Date(c.cotif) <= new Date(fechaFin));
-      return pasaEstado && pasaFecha;
-    })
-    .sort((a, b) => new Date(b.cotif) - new Date(a.cotif));
+const [filtersUI, setFiltersUI] = useState({});
+const logisticaEntrada = useMemo(() => {
+  return cotizaciones;
+}, [cotizaciones]);
+const totalRegistros = isFetching ? "..." : logisticaEntrada.length;
 
   // Mapeo  de Clientes
   useEffect(() => {
@@ -181,22 +140,29 @@ export default function EntradaAlmacen() {
   };
 
   // ----------------------------------------------------
-  // 📊 Reporte Cotizaciones por Área (Dashboard)
+  // 📊 Reporte entrada DE ALMACEN (Dashboard)
   // ----------------------------------------------------
   const handleReport = (filters) => {
     if (!filters) return;
 
     const params = {
       anno: filters.anio || annoActual,
-      mes: filters.mes || "%",
-      estado: filters.estado || "%",
+        mes: filters.mes || "%",
+        cliente: filters.cliente || "%",
+        estado: filters.estado || "%",
+      
+       // 🔥 MAPEO REAL A TU MODELO
+       referencia: filters.movimiento || "%",
+       almacen: filters.area || "%",
+       operacion: "E",
+      
     };
 
     const API_URL = import.meta.env.VITE_API_URL;
     const query = new URLSearchParams(params).toString();
 
     windowsOpen(
-      `${API_URL}/cotizaciones/reportes/reporte_cotizaciones_dashboard_html/?${query}`,
+      `${API_URL}/cotizaciones/reportes/reporte_almacen_dashboard_html/?${query}`,
       980,
       600
     );
@@ -225,17 +191,22 @@ export default function EntradaAlmacen() {
               style={{ fontSize: "clamp(1rem,2.2vw,2rem)" }}
             >
               <BriefcaseBusiness className="w-[clamp(20px,3vw,30px)] h-[clamp(20px,3vw,30px)] text-gray-900" />
-              Entrada a Almacén
+              Entrada de Almacén
             </motion.h1>
             <motion.p
-              className="mt-1 text-gray-600 italic truncate"
+              className="mt-1 text-gray-600 italic truncate flex items-center gap-2"
               style={{ fontSize: "clamp(0.7rem,0.9vw,1rem)" }}
             >
-              Gestión de tus <span className="font-semibold text-blue-600">entradas a almacén</span>.
+              Gestión de tus 
+              <span className="font-semibold text-blue-600">Entradas de almacén</span>.
+              
+              <span className="ml-3 px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-bold">
+                {totalRegistros} registros
+              </span>
             </motion.p>
           </div>
 
-          {/* BOTÓN NUEVA COTIZACIÓN */}
+          {/* BOTÓN NUEVA inserción de entrada */}
           <div className="flex flex-wrap gap-2 justify-end">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Button
@@ -249,152 +220,55 @@ export default function EntradaAlmacen() {
           </div>
         </motion.div>
 
-        {/* SECCIÓN KPIs - V&C BUSINESS INTELLIGENCE */}
-        <div className="relative grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-10 w-full">
-          {isFetching && (
-            <div className="absolute inset-0 z-20 bg-white/40 backdrop-blur-[2px] rounded-[2.5rem] flex items-center justify-center">
-              <Loader className="w-8 h-8 animate-spin text-teal-600" />
-            </div>
-          )}
+  
+          {/* FILTROS */}
+          <div className="w-full mb-4">
+            <FilterCard
+              dashboard="cotizaciones"
+              className="w-full"
+              compact
+              processing={processingFilters}
+              onReport={handleReport}
+        onProcess={async (filters, event) => {
+                console.log("🟡 FILTERS UI (Entrada):", filters);
 
-          {[
-            {
-              label: "Total Cotizaciones",
-              value: stats.total || cotizaciones.length,
-              icon: FileSpreadsheet, // Más específico para documentos
-              category: "Cantidad",
-              unit: "Cotizaciones",
-              bg: "bg-blue-50",
-              text: "text-blue-700",
-              border: "border-blue-100",
-              iconBg: "bg-blue-100/60",
-            },
-            {
-              label: "Monto Total S/.",
-              value: stats.montoTotalSoles || 0,
-              icon: Wallet2, // Icono de billetera/capital
-              category: "Ingresos PEN",
-              unit: "Soles",
-              bg: "bg-emerald-50",
-              text: "text-emerald-700",
-              border: "border-emerald-100",
-              iconBg: "bg-emerald-100/60",
-            },
-            {
-              label: "Monto Total $",
-              value: stats.montoTotalDolares || 0,
-              icon: Landmark, // Icono de tesorería/divisas
-              category: "Ingresos USD",
-              unit: "Dólares",
-              bg: "bg-violet-50",
-              text: "text-violet-700",
-              border: "border-violet-100",
-              iconBg: "bg-violet-100/60",
-            },
-            {
-              label: "Promedio S/.",
-              value: stats.promedioSoles || 0,
-              icon: Scale, // Icono de equilibrio/promedio
-              category: "Ratio PEN",
-              unit: "Soles",
-              bg: "bg-rose-50",
-              text: "text-rose-700",
-              border: "border-rose-100",
-              iconBg: "bg-rose-100/60",
-            },
-            {
-              label: "Promedio $",
-              value: stats.promedioDolares || 0,
-              icon: Coins, // Icono de monedas
-              category: "Ratio USD",
-              unit: "Dólares",
-              bg: "bg-amber-50",
-              text: "text-amber-700",
-              border: "border-amber-100",
-              iconBg: "bg-amber-100/60",
-            },
-          ].map((kpi, idx) => (
-            <motion.div
-              key={idx}
-              whileHover={{ y: -8, transition: { duration: 0.2 } }}
-              className={`
-                relative overflow-hidden p-6
-                rounded-[2.2rem] border shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]
-                flex flex-col justify-between min-h-[150px]
-                ${kpi.bg} ${kpi.border} transition-all duration-300
-              `}
-            >
-              {/* HEADER DEL KPI: Icono y Categoría Dinámica */}
-              <div className="flex justify-between items-start relative z-10">
-                <div className={`p-3 rounded-2xl ${kpi.iconBg} shadow-sm`}>
-                  <kpi.icon className={`w-5 h-5 ${kpi.text}`} strokeWidth={2.5} />
-                </div>
-                <div className={`px-3 py-2 rounded-full text-[9px] font-black uppercase tracking-[0.15em] border ${kpi.border} bg-white/50 ${kpi.text}`}>
-                  {kpi.category}
-                </div>
-              </div>
+                setFiltersUI(filters);
+                if (event) event.preventDefault();
+                setProcessingFilters(true);
 
-              {/* CUERPO DEL KPI: Valor y Etiqueta */}
-              <div className="mt-3 relative z-10">
-                <p className={`text-[11px] font-bold uppercase tracking-widest mb-1.5 opacity-60 ${kpi.text}`}>
-                  {kpi.label}
-                </p>
-                <div className="flex items-baseline gap-2">
-                  <h3 className={`text-3xl font-[950] tracking-tighter leading-none ${kpi.text}`}>
-                    {typeof kpi.value === 'number' 
-                      ? kpi.value.toLocaleString('es-PE', { minimumFractionDigits: kpi.label.includes('Promedio') ? 2 : 0 }) 
-                      : kpi.value}
-                  </h3>
-                  <span className={`text-[10px] font-black uppercase tracking-wider ${kpi.text} opacity-40`}>
-                    {kpi.unit}
-                  </span>
-                </div>
-              </div>
+                try {
+                  const params = {
+                    anno: filters.anio || currentYear,
+                    mes: filters.mes || "%",
+                    cliente: filters.cliente || "%",
+                    estado: filters.estado || "%",
 
-              {/* DECORACIÓN FONDO: Micro-patrón de seguridad */}
-              <div className={`absolute -right-2 -bottom-2 opacity-[0.08] ${kpi.text}`}>
-                <kpi.icon className="w-24 h-24 rotate-[15deg]" />
-              </div>
-            </motion.div>
-          ))}
-        </div>
+                    // 🔥 MAPEO REAL AL MODELO
+                    referencia: filters.movimiento || "%",
+                    almacen: filters.area || "%",
+                    operacion: "E",   // 🔑 SIEMPRE 'E' para ENTRADAS
 
-        {/* FILTROS */}
-        <div className="w-full mb-4">
-          <FilterCard
-            dashboard="cotizaciones"
-            className="w-full"
-            compact
-            processing={processingFilters}
-            onReport={handleReport}
-            onProcess={async (filters, event) => {
-              if (event) event.preventDefault();
-              setProcessingFilters(true);
-              try {
-                const params = {
-                  anno: filters.anio || annoActual,
-                  mes: filters.mes || "%",
-                  cliente: filters.cliente || "%",
-                  estado: filters.estado || "%",
-                  area: filters.area || "%",
-                  envio: filters.envio || "%",
-                  ...(filters.campo && filters.valor
-                    ? {
-                        campo: filters.campo,
-                        valor: filters.valor,
-                      }
-                    : {}),
-                  ...(filters.fechaInicio ? { fechaInicio: filters.fechaInicio } : {}),
-                  ...(filters.fechaFin ? { fechaFin: filters.fechaFin } : {}),
-                };
+                    envio: filters.envio || "%",
 
-                setCurrentFilters(params); // 🔥 esto dispara el refetch automático
-              } finally {
-                setProcessingFilters(false);
-              }
-            }}
-          />
-        </div>
+                    ...(filters.campo && filters.valor
+                      ? { campo: filters.campo, valor: filters.valor }
+                      : {}),
+                  };
+
+                  console.log("🟢 PARAMS ENVIADOS (Entrada):", params);
+
+                  // 🔥 actualizar filtros → react-query re-fetches automáticamente
+                  setCurrentFilters(params);
+
+                  // 🔥 FORZAR REFRESH con clave correcta
+                  queryClient.invalidateQueries(["logistica_entrada"]);
+
+                } finally {
+                  setProcessingFilters(false);
+                }
+              }}
+            />
+          </div>
 
         {/* TABLA DE COTIZACIONES - V&C ENTERPRISE DEFINITIVE */}
         <div className="hidden md:block w-full flex-1 overflow-auto relative rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
@@ -458,7 +332,7 @@ export default function EntradaAlmacen() {
 
               // 4. CODIGO
               <span className="text-xs font-semibold text-slate-800 text-left tracking-tight uppercase leading-none">
-                {c.fec}
+                {c.codigo}
               </span>,
 
               // 5. NOMBRE 
@@ -521,6 +395,12 @@ export default function EntradaAlmacen() {
             ]}
           />
         </div>
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-sm text-gray-500">
+          Mostrando {totalRegistros} registros
+        </span>
+      </div>
+
 
         {/* CARDS MOBILE */}
         <div className="flex flex-col gap-3 md:hidden">
@@ -573,25 +453,26 @@ export default function EntradaAlmacen() {
         </div>
 
         {/* MODAL */}
-        <NuevaLogisticaModal
-          open={openNueva}
-          onClose={() => setOpenNueva(false)}
-          modo="C"
-          tipo="N"
-          dashboard="C"
-        />
-
-        {logisticaSeleccionada && (
-          <LogisticaModal
-            key={logisticaSeleccionada.num_reg}
-            open={detalleOpen}
-            onClose={() => setDetalleOpen(false)}
-            logistica={logisticaSeleccionada}
-            modo="C"
-            tipo="V"
-            dashboard="C"
-          />
-        )}
+              <NuevaLogisticaModal
+                open={openNueva}
+                onClose={() => setOpenNueva(false)}
+                modo="C"
+                tipoOperacion="E"
+                tipo="N"
+                dashboard="C"
+              />
+      
+              {logisticaSeleccionada && (
+                <NuevaLogisticaModal
+                  key={logisticaSeleccionada.num_reg}
+                  open={detalleOpen}
+                  onClose={() => setDetalleOpen(false)}
+                  logistica={logisticaSeleccionada}
+                  modo="C"
+                  tipo="V"
+                  dashboard="C"
+                />
+              )}
       </div>
     </motion.div>
   );

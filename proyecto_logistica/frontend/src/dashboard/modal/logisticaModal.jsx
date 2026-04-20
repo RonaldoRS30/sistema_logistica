@@ -125,18 +125,45 @@ export default function LogisticaModal({ open, onClose, dataInitial = null, logi
     { id: "16", nombre: "Nota de Debito" },
   ];
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      // await api.post("logistica/salida-almacen/", { ...form, items });
-      toast.success("Salida de almacén guardada correctamente");
-      onClose();
-    } catch (error) {
-      toast.error("Error al procesar el registro");
-    } finally {
-      setSaving(false);
-    }
-  };
+const handleSave = async () => {
+  setSaving(true);
+
+  try {
+    const payload = {
+      cabecera: {
+        fecha: form.fecha,
+        almacen: form.almacen,
+        referencia: form.referencia,
+        tipo_movimiento: form.tipo_movimiento,
+        moneda: form.moneda === "Dolares" ? "D" : "S",
+        responsable: form.responsable,
+        numero_doc: form.numero_doc,
+        nro_guia: form.nro_guia,
+        obs_doc: form.obs_doc,
+      },
+      items: items.map(i => ({
+        codigo: i.codigo,
+        cantidad: i.cant,
+        unidad: i.um,
+        valor_unitario: i.valor,
+        total: i.total
+      }))
+    };
+
+    console.log("📤 ENVIANDO:", payload);
+
+    await api.post("logistica/salida-almacen/", payload);
+
+    toast.success("Guardado correctamente");
+    onClose();
+
+  } catch (error) {
+    console.error(error);
+    toast.error("Error al guardar");
+  } finally {
+    setSaving(false);
+  }
+};
 
 // ================================
 // BUSCADOR DE PRODUCTOS
@@ -232,7 +259,8 @@ const [openUmed, setOpenUmed]           = useState(false);
 const [umedQuery, setUmedQuery]         = useState("");
 const [umedLista, setUmedLista]         = useState([]);
 const [loadingUmed, setLoadingUmed]     = useState(false);
-
+const [refreshKey, setRefreshKey] = useState(0);
+setRefreshKey(prev => prev + 1);
 const fetchUmed = async (query) => {
   setLoadingUmed(true);
   try {
@@ -305,7 +333,7 @@ const handleCloseUmed = () => {
         orden_compra:    cab.orden_compra    || "",
         razon_social:    cab.razon_social    || "",
         numero_doc:      cab.numero_doc      || "",
-        obsdoc:          cab.obsdoc          || "",
+        //obsdoc:          cab.obsdoc          || "",
         documentos:      cab.numerodoc       || "",
         puntoPartida:    cab.observacion     || "",
         puntoLlegada:    "",

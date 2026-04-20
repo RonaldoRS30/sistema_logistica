@@ -24,7 +24,7 @@ import api from "@/services/api";
 /* ==========================================================
    📌 FilterCard — Filtros corporativos PMInsight (COTIZACIONES)
    ========================================================== */
-const FilterCard = ({ onProcess, onReport, initialFilters = {} }) => {
+const FilterCard = ({ onProcess, onReport, onClear, initialFilters = {}, reportLoading = false }) => {
   const currentYear = new Date().getFullYear();
 
 const [filters, setFilters] = useState({
@@ -40,7 +40,7 @@ const [filters, setFilters] = useState({
   generalValor: "",
 });
 
-
+const [cotizaciones, setCotizaciones] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [areas, setAreas] = useState([]);
   const estados = [
@@ -124,16 +124,23 @@ const [filters, setFilters] = useState({
     setProductosLista([]);
   };
 
-  const handleClearFilters = async () => {
-    setFilters(DEFAULT_FILTERS);
-    setProductoSeleccionado("");
-    setBusquedaQuery("");
-    setProductosLista([]);
+const handleClearFilters = () => {
+  // Reset filtros
+  setFilters({ ...DEFAULT_FILTERS });
 
-    if (onProcess) {
-      await onProcess(DEFAULT_FILTERS);
-    }
-  };
+  // Reset producto
+  setProductoSeleccionado("");
+
+  // Reset buscador
+  setBusquedaQuery("");
+  setProductosLista([]);
+  setOpenBuscador(false);
+
+  // Limpiar tabla SOLO visualmente
+  if (typeof onClear === "function") {
+    onClear();
+  }
+};
 
   /* ==========================================================
      🚀 Carga inicial de combos (Clientes / Áreas / Estados / Envios)
@@ -219,24 +226,27 @@ const [filters, setFilters] = useState({
 const handleProcess = async (e) => {
   try {
     if (e) e.preventDefault();
+
     if (!onProcess) return;
 
     setProcessing(true);
 
     const filtros = getNormalizedFilters();
+
     await onProcess(filtros);
+
   } catch (err) {
+    console.error(err);
     setError("Error al aplicar filtros.");
   } finally {
     setProcessing(false);
   }
 };
 
-
 const getNormalizedFilters = () => {
   const filtros = { ...filters };
 
-  if (filtros.generalCampo && filtros.generalValor) {
+  if (filtros.generalCampo && filtros.generalValor?.trim()) {
     filtros.campo = filtros.generalCampo;
     filtros.valor = filtros.generalValor.trim();
   }
@@ -255,7 +265,6 @@ const getNormalizedFilters = () => {
       }));
     }
   }, [initialFilters]);
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -391,20 +400,39 @@ const getNormalizedFilters = () => {
                 <Trash2 className="w-4 h-4" /> Limpiar
               </Button>
 
-                <Button
-                  type="button"
-                  onClick={() => {
-                    if (!onReport) return;
-                    const filtros = getNormalizedFilters();
-                    onReport(filtros); // ← Pasa los mismos filtros que "Procesar"
-                  }}
-                  size="lg"
-                  variant="ghost"
-                  className="text-sm font-black uppercase tracking-widest text-orange-700 hover:bg-orange-100 border border-transparent hover:border-orange-200 rounded-xl h-9 px-8 transition-all"
-                >
-                  <FileSliders className="w-4 h-4" /> Reporte PDF
-                </Button>
+              <Button
+                type="button"
+                disabled={reportLoading}
+                onClick={() => {
+                  if (!onReport) return;
 
+                  const filtros = getNormalizedFilters();
+                  if (!filtros.producto || filtros.producto === "%") {
+                    setError("Debe seleccionar un producto antes de generar el reporte PDF.");
+                    return;
+                  }
+                  onReport(filtros);
+                }}
+                size="lg"
+                variant="ghost"
+                className="h-9 px-5 rounded-xl bg-green-700 hover:bg-green-800 text-white border border-green-700 hover:border-green-800 transition-all flex items-center gap-2 text-xs font-black uppercase tracking-widest"
+              >
+                {reportLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generando PDF...
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7l-5-5Z" stroke="white" strokeWidth="1.6" />
+                      <path d="M14 2v5h5" stroke="white" strokeWidth="1.6" />
+                      <path d="M8 16h8M8 12h8" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                    Reporte PDF
+                  </>
+                )}
+              </Button>
 
             </div>
           </motion.div>

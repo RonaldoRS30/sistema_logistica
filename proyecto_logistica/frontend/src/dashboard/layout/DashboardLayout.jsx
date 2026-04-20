@@ -9,8 +9,10 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
+  Warehouse,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import api from "@/services/api"; // tu servicio de API
@@ -19,6 +21,18 @@ import GlobalSearchModal from "../../components/global/GlobalSearchModal";
 import GlobalNavbar from "./GlobalNavbar";
 
 const SIDEBAR_ITEMS = [
+  {
+    section: "TABLAS",
+    items: [
+      { to: "/dashboard/proveedores", label: "Proveedores", icon: FileText },
+      { to: "/dashboard/almacenes", label: "Almacenes", icon: FileText },
+      { to: "/dashboard/grupo-analitico", label: "Grupo Analítico", icon: FileText },
+      { to: "/dashboard/productos", label: "Productos", icon: FileText },
+      { to: "/dashboard/centros-costo-almacen", label: "Centros de Costo", icon: Warehouse },
+      { to: "/dashboard/umed", label: "Unidad de Medida", icon: FileText },
+      { to: "/dashboard/documentos-almacen", label: "Documentos Almacen", icon: FileText },
+    ],
+  },
   {
     section: "Movimientos",
     items: [
@@ -30,12 +44,46 @@ const SIDEBAR_ITEMS = [
      // { to: "/dashboard/seguimiento-cotizaciones", label: "Seguimiento Cotizaciones", icon: BarChart2 },
     ],
   },
+  {
+    section: "Procesos",
+    items: [
+      { to: "#proceso-inventario", label: "Procesos Inventario", icon: FileText },
+    ],
+  },
+  {
+    section: "Consultas y Reportes",
+    items: [
+      { to: "/dashboard/reportes-tablas", label: "Reportes Tablas", icon: FileText },
+      { to: "/dashboard/reportes-almacen", label: "Reportes de Almacen", icon: FileText },
+    ],
+  },
 ];
 
 const NavSectionTitle = ({ title }) => (
   <div className="text-xs uppercase text-gray-400 font-semibold px-4 pt-6 pb-1">
     {title}
   </div>
+);
+
+const SidebarSectionHeader = ({ title, isOpen, onToggle, collapsed }) => (
+  <button
+    type="button"
+    onClick={onToggle}
+    className="w-full flex items-center justify-between px-3"
+    aria-expanded={isOpen}
+  >
+    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+      {title}
+    </span>
+
+    {!collapsed && (
+      <ChevronDown
+        size={14}
+        className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : "rotate-0"}`}
+        strokeWidth={2.2}
+      />
+    )}
+  </button>
 );
 
 const SidebarLink = ({ to, label, icon: Icon, collapsed, onClick }) => {
@@ -69,6 +117,15 @@ export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+
+  // Estado de secciones (tipo acordeón) para que "Movimientos" muestre sus opciones como en la imagen.
+  const [openSections, setOpenSections] = useState(() => {
+    const init = {};
+    SIDEBAR_ITEMS.forEach((s) => {
+      init[s.section] = s.section === "Movimientos";
+    });
+    return init;
+  });
 
   // 🔹 Estado de usuario y carga
   const [user, setUser] = useState(null);
@@ -104,6 +161,19 @@ export default function DashboardLayout() {
   };
 
   const filteredSidebar = useMemo(() => SIDEBAR_ITEMS, []);
+
+  // Auto abrir la sección activa según la ruta
+  useEffect(() => {
+    const active = SIDEBAR_ITEMS.find((section) =>
+      section.items.some((item) =>
+        location.pathname === item.to || location.pathname.startsWith(item.to + "/")
+      )
+    )?.section;
+
+    if (active) {
+      setOpenSections((prev) => ({ ...prev, [active]: true }));
+    }
+  }, [location.pathname]);
 
   // ================================
   // ⌨️ ATAJOS GLOBALES UI
@@ -181,7 +251,7 @@ export default function DashboardLayout() {
               {/* Contenedor del Texto */}
               <div className="flex flex-col items-center overflow-hidden">
                 <h2 className="text-sm font-bold text-[#172B4D] text-center leading-tight">
-                  Gestión Comercial
+                  Gestión de Almacén
                 </h2>
               </div>
             </div>
@@ -199,10 +269,23 @@ export default function DashboardLayout() {
           <nav className="flex-1 px-3 py-2 space-y-6 overflow-y-auto no-scrollbar shrink-0">
             {SIDEBAR_ITEMS.map((section) => (
               <div key={section.section} className="mb-4">
-                <span className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
-                  {section.section}
-                </span>
-                <div className="space-y-0.5">
+                <SidebarSectionHeader
+                  title={section.section}
+                  isOpen={!!openSections[section.section]}
+                  collapsed={!sidebarOpen}
+                  onToggle={() =>
+                    setOpenSections((prev) => ({
+                      ...prev,
+                      [section.section]: !prev[section.section],
+                    }))
+                  }
+                />
+
+                <div
+                  className={`space-y-0.5 overflow-hidden transition-all duration-200 ${
+                    openSections[section.section] ? "max-h-64 opacity-100" : "max-h-0 opacity-0"
+                  }`}
+                >
                   {section.items.map((item) => (
                     <SidebarLink
                       key={item.to}

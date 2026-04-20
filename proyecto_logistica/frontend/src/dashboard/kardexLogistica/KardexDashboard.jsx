@@ -3,14 +3,15 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/services/api";
 import { BriefcaseBusiness, Loader } from "lucide-react";
-
+import { toast } from "sonner";
+import { Toaster } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useScroll, useTransform, motion } from "framer-motion";
 import Table from "@/components/ui/table";
 import FilterCardKardex from "@/components/ui/FilterCardKardex";
 import { ESTADO_STATE_COLORS } from "@/components/ui/colors";
 import NuevaLogisticaModalSal from "../modal/nuevaLogisticaModalSal";
-
+import Swal from "sweetalert2";
 export default function KardexDashboard() {
   const { authUser: user, logout } = useAuth();
 
@@ -21,7 +22,6 @@ export default function KardexDashboard() {
   const [logisticaSeleccionada, setLogisticaSeleccionada] = useState(null);
   const [openNueva, setOpenNueva] = useState(false);
   const [annoActual, setAnnoActual] = useState(new Date().getFullYear());
-  const [processingFilters, setProcessingFilters] = useState(false);
 
   // filtros actuales
   const [filters, setFilters] = useState({
@@ -135,30 +135,78 @@ export default function KardexDashboard() {
 // Dentro de KardexDashboard.jsx
 
 const handleProcess = async () => {
-    setProcessingFilters(true);
-    try {
-      const response = await api.get("/logistica/kardex-base/", { params: filters });
-      // Asegurarse de que recibimos un array
-      setKardexRows(Array.isArray(response.data) ? response.data : []);
-    } catch (error) {
-      console.error("Error al procesar:", error);
-      setKardexRows([]); // Limpiar en caso de error
-    } finally {
-      setProcessingFilters(false);
-    }
-  };
+  setProcessingFilters(true);
+
+  try {
+    const response = await api.get("/logistica/kardex-base/", { params: filters });
+    setKardexRows(Array.isArray(response.data) ? response.data : []);
+  } catch (error) {
+    console.error(error);
+    setKardexRows([]);
+  } finally {
+    setProcessingFilters(false);
+  }
+};
 
 
 
 const handleReport = async (filtros) => {
+  const producto = filtros?.producto || "";
+  if (!producto || producto === "%") {
+    Swal.fire({
+      icon: "warning",
+      title: "Producto requerido",
+      text: "Debe seleccionar un producto antes de generar el reporte.",
+      confirmButtonText: "Entendido",
+    });
+    return;
+  }
+
+  const nuevaVentana = window.open("", "_blank");
+  if (!nuevaVentana) {
+    Swal.fire({
+      icon: "error",
+      title: "Popup bloqueado",
+      text: "Permita ventanas emergentes para abrir el reporte.",
+      confirmButtonText: "OK",
+    });
+    return;
+  }
+
+  nuevaVentana.document.write(`
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Generando reporte...</title>
+        <style>
+          body { margin:0; font-family: Arial, sans-serif; background:#f8fafc; }
+          .wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; }
+          .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px 28px; text-align:center; box-shadow:0 8px 30px rgba(2,6,23,.08); }
+          .spin { width:36px; height:36px; border:4px solid #cbd5e1; border-top-color:#2563eb; border-radius:50%; margin:0 auto 12px; animation:spin 1s linear infinite; }
+          .txt { color:#334155; font-size:14px; font-weight:600; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        </style>
+      </head>
+      <body>
+        <div class="wrap">
+          <div class="card">
+            <div class="spin"></div>
+            <div class="txt">Generando reporte Kardex...</div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+  nuevaVentana.document.close();
+
   try {
     setReportLoading(true);
-    
-    // Mapear filtros del FilterCard a nombres del backend
+
     const params = {
       anno: filtros.anio || '%',
-      mes: filtros.mes || '%', 
-      cod: filtros.producto || '%',
+      mes: filtros.mes || '%',
+      cod: filtros.producto,
       moneda: filtros.moneda || 'S'
     };
 
@@ -167,35 +215,32 @@ const handleReport = async (filtros) => {
       responseType: 'blob'
     });
 
-    // ✅ CAMBIO 1: Crear Blob
     const blob = new Blob([response.data], { type: 'application/pdf' });
     const url = window.URL.createObjectURL(blob);
 
-    // ✅ CAMBIO 2: Abrir en NUEVA VENTANA (en lugar de download)
-    window.open(url, '_blank', 'noopener,noreferrer');
-
-    // Liberar memoria después de 1 segundo
-    setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    nuevaVentana.location.href = url;
 
   } catch (error) {
-    console.error('Error PDF:', error);
-    alert('Error generando PDF');
+    console.error(error);
+    nuevaVentana.close();
+    Swal.fire({
+      icon: "error",
+      title: "No se pudo generar el reporte",
+      text: "Intente nuevamente en unos segundos.",
+      confirmButtonText: "OK",
+    });
   } finally {
     setReportLoading(false);
   }
 };
 
-// En tu render:
-<FilterCardKardex 
-  onProcess={handleProcess}
-  onReport={handleReport}  // ← Pasa tu handleReport
-  initialFilters={filters}
-/>
+const handleClearTable = () => {
+  setKardexRows([]);
+};
 
-// Estado para loading del PDF
+
+const [processingFilters, setProcessingFilters] = useState(false);
 const [reportLoading, setReportLoading] = useState(false);
-
-
   
   const inventarioFinal = kardexRows.length ? kardexRows[kardexRows.length - 1] : null;
 
@@ -236,18 +281,33 @@ const [reportLoading, setReportLoading] = useState(false);
             className="w-full"
             compact
             processing={processingFilters}
+            reportLoading={reportLoading}
             onReport={handleReport}
-            onProcess={async (filtersFromCard, event) => {
+            onClear={handleClearTable}
+        onProcess={async (filtersFromCard, event) => {
               if (event) event.preventDefault();
+
+              // 🚨 Validar que haya producto seleccionado
+              if (!filtersFromCard.producto || filtersFromCard.producto === "%") {
+                toast.warning("Debe seleccionar un producto para consultar el Kardex.", {
+                  description: "Use el selector de producto antes de procesar.",
+                  duration: 4000,
+                });
+                return;
+              }
+
               setProcessingFilters(true);
+
               try {
                 const params = {
                   anno: filtersFromCard.anio || annoActual,
                   mes: filtersFromCard.mes || "%",
                   moneda: filtersFromCard.moneda || "S",
-                  cod: filtersFromCard.producto || "%",
+                  cod: filtersFromCard.producto,
                 };
+
                 setFilters((prev) => ({ ...prev, ...params }));
+
                 await fetchKardex(params);
               } finally {
                 setProcessingFilters(false);
@@ -297,6 +357,11 @@ const [reportLoading, setReportLoading] = useState(false);
 
             {/* CUERPO DE DATOS */}
             <div className="overflow-y-auto">
+                          {kardexRows.length === 0 && !processingFilters && (
+              <div className="p-10 text-center text-slate-400 text-sm font-semibold">
+                No hay datos para mostrar
+              </div>
+            )}
               {kardexRows.map((row, idx) => (
                 <div 
                   key={idx} 

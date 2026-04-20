@@ -37,7 +37,7 @@ urlpatterns = [
     path('logistica/dashboard/productos/', views.logistica_productos_view, name="logistica_productos"),
     path('logistica/dashboard/umed/', views.logistica_umed_view, name="logistica_umed"),
     path('logistica/dashboard/areas/', views.logistica_areas_view, name="logistica_areas"),
-    path('logistica/dashboard/next-num-reg/',     views.logistica_next_num_reg, name='logistica-next-num-reg'),
+    path('logistica/movimiento/',     views.logistica_movimiento, name='logistica_movimiento'),
      path(
         'logistica/dashboard/ordenes-oc/',
         views.buscar_ordenes_oc,
@@ -56,6 +56,11 @@ urlpatterns = [
 
     path('logistica/kardex-base/', views.logistica_kardex_base_view, name='kardex_base_data'),
     path('cotizaciones/reportes/reporte_kardex_pdf/', views.reporte_kardex_pdf, name='reporte_kardex_pdf'),
+    path('cotizaciones/reportes/reporte_almacen_dashboard_html/', views.reporte_almacen_dashboard_html, name='reporte_almacen_dashboard_html'),
+    path('cotizaciones/reportes/reporte_almacen_salidas_dashboard_html/', views.reporte_almacen_salidas_dashboard_html, name='reporte_almacen_salidas_dashboard_html'),
+    #path("logistica/salida-almacen/", views.salida_almacen, name='salida_almacen'),
+    path('exportar_excel_entradas/', views.exportar_excel_entradas),
+    path('exportar_excel_almacen/', views.exportar_excel_almacen),
 
     # BUSQUEDA
     path('clientes/<str:empresa>/encargados/', views.buscar_encargados_por_empresa, name='buscar_encargados_por_empresa'),
@@ -66,25 +71,16 @@ urlpatterns = [
     path("cotizaciones/adjuntos/eliminar/", views.eliminar_archivo, name="eliminar_archivo"),
 
     # GESTION
-    path("cotizaciones/<str:num_reg>/condiciones-generales/", views.condiciones_generales, name="condiciones_generales"),
     path("cotizaciones/<str:numero>/generar-codigo/", views.generar_codigo_view, name="generar_codigo"),
-    path("cotizaciones/generar_codigo/<str:num_reg>/", views.generar_codigo_cotizacion, name="generar_codigo_cotizacion"),
-    path("cotizaciones/<str:num_reg>/nueva-version/", views.crear_nueva_version_cotizacion, name="nueva-version"),
     path("cotizaciones/<str:num_reg>/asignar-regus/", views.asignar_regus, name="asignar_regus"),
-    path("cotizaciones/<str:num_reg>/generar-copia/", views.generar_copiar_cotizacion, name="generar_copiar_cotizacion"),
-    path("cotizaciones/<int:num_reg>/", views.eliminar_cotizacion, name="eliminar_cotizacion"),
-    path("cotizaciones/<int:num_reg>/enviar-aprobacion/", views.enviar_cotizacion_aprobacion, name="enviar_cotizacion_aprobacion"),
-    path("cotizaciones/<str:num_reg>/cerrar/", views.cerrar_cotizacion, name="cerrar_cotizacion"),
-    path("cotizaciones/<int:num_reg>/cambiar-estado/", views.cambiar_estado_cotizacion, name="cambiar_estado_cotizacion"),
-    path("cotizaciones/<int:num_reg>/retornar/", views.retornar_cotizacion, name="retornar_cotizacion"),
-    path("cotizaciones/<str:num_reg>/pdf-context/", views.cotizacion_pdf_context, name="cotizacion_pdf_context"),
-    path("cotizaciones/<str:num_reg>/pdf-preview/", views.cotizacion_pdf_preview, name="cotizacion_pdf_preview"),
-    path("cotizaciones/<str:num_reg>/pdf/", views.cotizacion_pdf, name="cotizacion_pdf",),
-    path("cotizaciones/<str:num_reg>/descuento/", views.descuento_cotizacion, name="obtener_descuento_cotizacion"),
 
     # DB_VC
     path("cotizaciones/areas/", views.lista_areas, name="lista_areas"),
     path("cotizaciones/clientes/", views.lista_clientes, name="lista_clientes"),
+    path("cotizaciones/clientes/crear/", views.crear_cliente, name="crear_cliente"),
+    path("cotizaciones/clientes/<str:codigo>/actualizar/", views.actualizar_cliente, name="actualizar_cliente"),
+    path("cotizaciones/clientes/<str:codigo>/eliminar/", views.eliminar_cliente, name="eliminar_cliente"),
+    path("cotizaciones/clientes/reporte-excel/", views.exportar_excel_proveedores, name="exportar_excel_proveedores"),
     path("cotizaciones/estados/", views.lista_estados, name="lista_estados"),
     path("cotizaciones/proveedores/", views.lista_proveedores, name="lista_proveedores"),
     path("cotizaciones/categorias/", views.lista_categorias, name="lista_categorias"),
@@ -96,20 +92,53 @@ urlpatterns = [
     path("cotizaciones/hoffman/", views.lista_hoffman, name="lista_hoffman"),
     path("cotizaciones/alm-articulos/", views.lista_alm_articulos, name="lista_alm_articulos"),
 
-    # GUARDAR COTIZACIÓN
+    # GUARDA COTIZACIÓN
     path("cotizaciones/guardar/", views.guardar_cotizacion, name="guardar_cotizacion"),
 
-    # REPORTES
-    path("cotizaciones/reportes/reporte_cotizaciones_dashboard_html/", views.reporte_cotizaciones_dashboard_html, name="reporte_cotizaciones_dashboard_html"),
-    path("cotizaciones/reportes/reporte_servicios_html/<int:num_reg>/", views.reporte_servicios_html, name="reporte_servicios_html"),
-    path("cotizaciones/reportes/reporte_suministros_html/<str:num_reg>/", views.reporte_suministros_html, name="reporte_suministros_html"),
-    path("cotizaciones/reportes/reporte_suministros_excel/<str:num_reg>/", views.reporte_suministros_excel, name="reporte_suministros_excel"),
-    path("cotizaciones/reportes/reporte_detallado_cotizacion/<str:num_reg>/", views.reporte_detallado_cotizacion, name="reporte_detallado_cotizacion"),
-    path("cotizaciones/reportes/reporte_detallado_excel/<str:num_reg>/", views.reporte_detallado_excel, name="reporte_detallado_excel"),
-    path("cotizaciones/reportes/reporte_resumen_cotizacion/<str:num_reg>/", views.reporte_resumen_cotizacion, name="reporte_resumen_cotizacion"),
+    # ALMACENES
+    path("cotizaciones/almacenes/", views.lista_almacenes, name="lista_almacenes"),
+    path("cotizaciones/almacenes/crear/", views.crear_almacen, name="crear_almacen"),
+    path("cotizaciones/almacenes/<str:cod>/actualizar/", views.actualizar_almacen, name="actualizar_almacen"),
+    path("cotizaciones/almacenes/reporte-excel/", views.exportar_excel_almacenes, name="exportar_excel_almacenes"),
+
+    # GRUPO ANALITICO
+    path("cotizaciones/grupos-analiticos/", views.lista_grupos_analiticos, name="lista_grupos_analiticos"),
+    path("cotizaciones/grupos-analiticos/crear/", views.crear_grupo_analitico, name="crear_grupo_analitico"),
+    path("cotizaciones/grupos-analiticos/<str:cod>/actualizar/", views.actualizar_grupo_analitico, name="actualizar_grupo_analitico"),
+    path("cotizaciones/grupos-analiticos/reporte-excel/", views.exportar_excel_grupos_analiticos, name="exportar_excel_grupos_analiticos"),
+
+    # PRODUCTOS
+    path("cotizaciones/productos/", views.lista_articulos, name="lista_articulos"),
+    path("cotizaciones/productos/crear/", views.crear_articulo, name="crear_articulo"),
+    path("cotizaciones/productos/<int:reg>/actualizar/", views.actualizar_articulo, name="actualizar_articulo"),
+    path("cotizaciones/productos/<int:reg>/eliminar/", views.eliminar_articulo, name="eliminar_articulo"),
+    path("cotizaciones/productos/reporte-excel/", views.exportar_excel_articulos, name="exportar_excel_articulos"),
+    path("cotizaciones/productos/reporte-barras-excel/", views.exportar_excel_barras, name="exportar_excel_barras"),
+    
+    # CENTROS DE COSTO
+    path("cotizaciones/centros-costo/", views.lista_ccostos, name="lista_ccostos"),
+    path("cotizaciones/centros-costo/crear/", views.crear_ccosto, name="crear_ccosto"),
+    path("cotizaciones/centros-costo/<str:cod>/actualizar/", views.actualizar_ccosto, name="actualizar_ccosto"),
+    path("cotizaciones/centros-costo/<str:cod>/eliminar/", views.eliminar_ccosto, name="eliminar_ccosto"),
+    path("cotizaciones/centros-costo/reporte-excel/", views.exportar_excel_ccostos, name="exportar_excel_ccostos"),
+
+    # UNIDADES DE MEDIDA
+    path("cotizaciones/unidades-medida/", views.lista_unidades_medida, name="lista_unidades_medida"),
+    path("cotizaciones/unidades-medida/crear/", views.crear_unidad_medida, name="crear_unidad_medida"),
+    path("cotizaciones/unidades-medida/<str:cod>/actualizar/", views.actualizar_unidad_medida, name="actualizar_unidad_medida"),
+    path("cotizaciones/unidades-medida/<str:cod>/eliminar/", views.eliminar_unidad_medida, name="eliminar_unidad_medida"),
+    path("cotizaciones/unidades-medida/reporte-excel/", views.exportar_excel_unidades_medida, name="exportar_excel_unidades_medida"),
+
 
     # SEGUIMIENTO DE COTIZACIONES
     # path("dashboard/seguimiento-cotizaciones/", views.lista_seguimiento_cotizaciones, name="lista_seguimiento_cotizaciones"),
+
+    # DOCUMENTOS ALMACÉN
+    path("cotizaciones/doc-almacen/", views.lista_doc_almacen, name="lista_doc_almacen"),
+    path("cotizaciones/doc-almacen/crear/", views.crear_doc_almacen, name="crear_doc_almacen"),
+    path("cotizaciones/doc-almacen/<str:cod>/actualizar/", views.actualizar_doc_almacen, name="actualizar_doc_almacen"),
+    path("cotizaciones/doc-almacen/<str:cod>/eliminar/", views.eliminar_doc_almacen, name="eliminar_doc_almacen"),
+    path("cotizaciones/doc-almacen/reporte-excel/", views.exportar_excel_doc_almacen, name="exportar_excel_doc_almacen"),
 
     # Todas las rutas de ViewSets bajo /api/
     path('', include(router.urls)),

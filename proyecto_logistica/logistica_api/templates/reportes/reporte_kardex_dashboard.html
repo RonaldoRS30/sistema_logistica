@@ -22,6 +22,7 @@
   .mi-empresa-logo img {
       width: 120px;
       height: auto;
+      display: block;
   }
 
   h2 {
@@ -86,7 +87,7 @@
 
 <div class="header">
   <div class="mi-empresa-logo">
-      <img src="{% static 'logo.png' %}" alt="Logo Empresa">
+      <img src="{{ logo_url }}" alt="Logo Empresa">
   </div>
 </div>
 

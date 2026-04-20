@@ -96,7 +96,6 @@ export default function TablaAlmLista({
                   costoTotal: Number(costoTotal.toFixed(2)) ?? 0.00,
                   ventaTotal: Number(ventaTotal.toFixed(2)) ?? 0.00,
                   utilidadTotal: Number(utilidadTotal.toFixed(2)) ?? 0.00,
-                  ventaPrecio: Number(precioVenta.toFixed(2)) ?? 0.00,
                 })
               }
               className="cursor-pointer hover:bg-blue-50 transition"

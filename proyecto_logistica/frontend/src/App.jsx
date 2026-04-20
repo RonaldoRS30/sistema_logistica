@@ -12,7 +12,7 @@ import ProtectedRoute from "@/components/layout/ProtectedRoute.jsx";
 // AUTH
 import LoginPage from "@/auth/login/LoginPage.jsx";
 import RegisterPage from "@/auth/register/RegisterPage.jsx";
-
+import { Toaster } from "sonner";
 // LAYOUT PRINCIPAL
 import DashboardLayout from "@/dashboard/layout/DashboardLayout.jsx";
 import GlobalNavbar from "@/dashboard/layout/GlobalNavbar.jsx";
@@ -25,6 +25,19 @@ import RevisionCotizaciones from "./dashboard/revision_cotizaciones/RevisionCoti
 import SeguimientoCotizaciones from "@/dashboard/seguimiento_cotizaciones/SeguimientoCotizaciones.jsx";
 import CotizacionesHome from "./dashboard/Home/CotizacionesHome";
 import KardexDashboard from "./dashboard/kardexLogistica/kardexDashboard.jsx";
+import TablasPlaceholder from "./dashboard/tablas/TablasPlaceholder.jsx";
+import Proveedores from "./dashboard/tablas/Proveedores.jsx";
+import Almacenes from "./dashboard/tablas/Almacenes.jsx";
+import GrupoAnalitico from "./dashboard/tablas/GrupoAnalitico.jsx";
+import Productos from "./dashboard/tablas/Productos.jsx";
+import CentrosCosto from "./dashboard/tablas/CentrosCosto.jsx";
+import UnidadesMedida from "./dashboard/tablas/UnidadesMedida.jsx";
+import DocumentosAlmacen from "./dashboard/tablas/DocumentosAlmacen.jsx";
+import ReportesTablasDashboard from "./dashboard/tablas/ReportesTablasDashboard.jsx";
+import ReportesAlmacenDashboard from "./dashboard/reportes/ReportesAlmacenDashboard.jsx";
+
+
+
 
 // MODAL NUEVA COTIZACIÓN
 import CotizacionNuevaModal from "./dashboard/aprobacion_cotizacion/CotizacionNuevaModal";
@@ -38,7 +51,7 @@ export default function App() {
         <KeyboardProvider>
 
           <ToastContainer position="top-right" autoClose={3000} />
-
+          <Toaster richColors position="top-right" />
           <Routes>
             {/* Public */}
             <Route path="/login" element={<LoginPage />} />
@@ -85,13 +98,56 @@ export default function App() {
                 path="cotizaciones/nueva"
                 element={<CotizacionNuevaModal />}
               />
-            </Route>
+
+            {/* TABLAS (placeholders) */}
+            <Route
+              path="proveedores"
+              element={<Proveedores />}
+            />
+            <Route
+              path="almacenes"
+              element={<Almacenes />}
+            />
+            <Route
+              path="grupo-analitico"
+              element={<GrupoAnalitico />}
+            />
+            <Route
+              path="productos"
+              element={<Productos />}
+            />
+            <Route
+              path="centros-costo-almacen"
+              element={<CentrosCosto />}
+            />
+            <Route
+              path="umed"
+              element={<UnidadesMedida />}
+            />
+            <Route
+              path="documentos-almacen"
+              element={<DocumentosAlmacen />}
+            />
+            
+            {/* REPORTES Y CONSULTAS */}
+            <Route
+              path="reportes-tablas"
+              element={<ReportesTablasDashboard />}
+            />
+            <Route
+              path="reportes-almacen"
+              element={<ReportesAlmacenDashboard />}
+            />
 
             {/* Redirect */}
             <Route
               path="*"
               element={<Navigate to="/dashboard/entrada-almacen" replace />}
             />
+            </Route>
+            {/* Redirects para rutas desconocidas y la raíz del sitio */}
+            <Route path="/" element={<Navigate to="/dashboard/entrada-almacen" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard/entrada-almacen" replace />} />
           </Routes>
 
         </KeyboardProvider>
